@@ -182,3 +182,4 @@ cython_debug/
 # csv logs
 **/metrics.csv
 **/hparams.yaml
+examples/2D/JUMP/HPC/
