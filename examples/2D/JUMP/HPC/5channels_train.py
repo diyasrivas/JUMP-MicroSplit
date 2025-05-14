@@ -242,8 +242,8 @@ class JUMPDataset(Dataset):
 
 def main():
     # HARDCODED PARAMETERS FOR 5-CHANNEL DATASET
-    TARGET_CHANNEL_LIST = ["DNA", "RNA", "ER", "AGP", "Mito"]
-    num_epochs = 10
+    TARGET_CHANNEL_LIST = ["DNA", "RNA", "AGP", "ER", "Mito"]
+    num_epochs = 20
     batch_size = 8
     reduce_data = False
     

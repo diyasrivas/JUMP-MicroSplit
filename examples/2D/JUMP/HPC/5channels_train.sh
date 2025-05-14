@@ -5,7 +5,7 @@
 #SBATCH --error=logs/microsplit_5ch_%A_%a.err
 #SBATCH --gres=gpu:1
 #SBATCH --mem=128GB
-#SBATCH --time=06:00:00
+#SBATCH --time=08:00:00
 
 export PYTHONPATH=/home/diya.srivastava/Desktop/repos/MicroSplit-reproducibility/src:$PYTHONPATH
 export PATH=~/miniforge3/bin:$PATH

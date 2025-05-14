@@ -5,8 +5,8 @@
 #SBATCH --error=logs/microsplit_2ch_%A_%a.err
 #SBATCH --gres=gpu:1
 #SBATCH --mem=128GB
-#SBATCH --time=06:00:00
-#SBATCH --array=0-9
+#SBATCH --time=10:00:00
+#SBATCH --array=0-1
 
 export PYTHONPATH=/home/diya.srivastava/Desktop/repos/MicroSplit-reproducibility/src:$PYTHONPATH
 export PATH=~/miniforge3/bin:$PATH
@@ -20,4 +20,4 @@ mkdir -p logs
 echo "Processing 2-channel combination index: ${SLURM_ARRAY_TASK_ID}"
 
 # Run the training script with the combination index from the array job
-python 2channels_train.py --index ${SLURM_ARRAY_TASK_ID} --epochs 10 --batch-size 16
+python 2channels_train.py --index ${SLURM_ARRAY_TASK_ID} --epochs 20 --batch-size 16
