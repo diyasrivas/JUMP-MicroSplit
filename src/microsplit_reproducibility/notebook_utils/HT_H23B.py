@@ -6,7 +6,7 @@ from microsplit_reproducibility.datasets import (
     create_train_val_datasets,
     SplittingDataset,
 )
-from microsplit_reproducibility.datasets.HT_LIF24 import get_train_val_data
+from microsplit_reproducibility.datasets.HT_H23B import get_train_val_data
 
 import os
 from pathlib import Path
@@ -14,46 +14,6 @@ import torch
 import pooch
 
 
-class Channels:
-    Nucleus = 0
-    MicroTubules = 1
-    NuclearMembrane = 2
-    Centromere = 3
-
-class ExposureDuration:
-    VeryLow = "2ms"
-    Low = "3ms"
-    Medium = "5ms"
-    High = "20ms"
-    VeryHigh = "500ms"
-
-
-def define_experiment_config(num_channels: int = 2, exposure: ExposureDuration = ExposureDuration.Medium):
-    if num_channels == 2:
-        target_channel_list = [Channels.Nucleus, Channels.MicroTubules]
-        if exposure != ExposureDuration.Medium:
-            print("For this data combination pretrained checkpoints and/or noise \n"
-                  "models might not be available. Please check the missing parts \n"
-                  "before procedding to inference part.")
-    elif num_channels == 3:
-        target_channel_list = [Channels.MicroTubules, Channels.NuclearMembrane, Channels.Centromere]
-    elif num_channels == 4:
-        target_channel_list = [Channels.Nucleus, Channels.MicroTubules, Channels.NuclearMembrane, Channels.Centromere]
-        if exposure != ExposureDuration.Medium:
-            print("For this data combination pretrained checkpoints and/or noise \n"
-                  "models might not be available. Please check the missing parts \n"
-                  "before procedding to inference part.")
-    else:
-        raise ValueError("num_channels must be 2, 3, or 4.")
-    
-    target_channel_list = sorted(target_channel_list)
-    total_channel_list = get_all_channel_list(target_channel_list)
-    print('Chosen structures:',target_channel_list)
-    print('All data channels to be loaded:', total_channel_list)
-    
-    return total_channel_list, target_channel_list, exposure
-
-    
 def load_pretrained_model(model: VAEModule, ckpt_path):
     device = get_device()
     ckpt_dict = torch.load(ckpt_path, map_location=device, weights_only=True)
@@ -68,35 +28,13 @@ def load_pretrained_model(model: VAEModule, ckpt_path):
     print(f"Loaded model from {ckpt_path}")
 
 
-def get_all_channel_list(target_channel_list):
-    """
-    Adds the input channel index to the target channel list.
-    """
-    input_channel_index_dict = {
-        "01": 8,
-        "02": 9,
-        "03": 10,
-        "12": 11,
-        "13": 12,
-        "23": 13,
-        "012": 14,
-        "013": 15,
-        "023": 16,
-        "123": 17,
-        "0123": 18,
-    }
-    return target_channel_list + [
-        input_channel_index_dict["".join([str(i) for i in target_channel_list])]
-    ]
-
-
 def get_unnormalized_predictions(
     model: VAEModule,
     dset: SplittingDataset,
-    exposure_duration,
-    target_channel_idx_list,
+    data_key,
     mmse_count,
     num_workers=4,
+    tile_size=(64, 64),
     grid_size=32,
     batch_size=8,
 ):
@@ -110,30 +48,29 @@ def get_unnormalized_predictions(
         batch_size=batch_size,
         num_workers=num_workers,
         mmse_count=mmse_count,
-        tile_size=model.model.image_size,
+        tile_size=tile_size,
         grid_size=grid_size,
     )
-    stitched_predictions = stitched_predictions[exposure_duration]
-    stitched_stds = stitched_stds[exposure_duration]
 
-    stitched_predictions = stitched_predictions[..., : len(target_channel_idx_list)]
-    stitched_stds = stitched_stds[..., : len(target_channel_idx_list)]
+    stitched_predictions = stitched_predictions[data_key]
+    stitched_stds = stitched_stds[data_key]
 
-    mean_params, std_params = dset.get_mean_std()
-    unnorm_stitched_predictions = stitched_predictions * std_params[
-        "target"
-    ].squeeze().reshape(1, 1, 1, -1) + mean_params["target"].squeeze().reshape(
-        1, 1, 1, -1
-    )
+    unnorm_stitched_predictions = []
+    for sample_preds in stitched_predictions:
+        mean_params, std_params = dset.get_mean_std()
+        unnorm_stitched_predictions.append(
+            sample_preds * std_params["target"].squeeze().reshape(1, 1, 1, -1)
+            + mean_params["target"].squeeze().reshape(1, 1, 1, -1)
+        )
     return unnorm_stitched_predictions, stitched_predictions, stitched_stds
 
 
 def get_target(dset):
-    return dset._data[..., :-1].copy()
+    return dset._data
 
 
 def get_input(dset):
-    return dset._data[..., -1].copy()
+    return dset._data
 
 
 def pick_random_inputs_with_content(dset):
@@ -151,20 +88,18 @@ def pick_random_inputs_with_content(dset):
 
 
 def pick_random_patches_with_content(tar, patch_size):
-    H, W = tar.shape[1:3]
+    H, W = tar[0].shape
     std_patches = []
     indices = []
     for i in range(1000):
         h_start = np.random.randint(H - patch_size)
         w_start = np.random.randint(W - patch_size)
         std_tmp = []
-        for ch_idx in range(tar.shape[-1]):
+        for ch_idx in range(len(tar)):
             std_tmp.append(
-                tar[
-                    0,
+                tar[ch_idx][
                     h_start : h_start + patch_size,
                     w_start : w_start + patch_size,
-                    ch_idx,
                 ].std()
             )
 
@@ -185,27 +120,18 @@ def pick_random_patches_with_content(tar, patch_size):
     return final_indices
 
 
-def full_frame_evaluation(stitched_predictions, tar, inp):
+def full_frame_evaluation(inp, pred):
 
-    ncols = tar.shape[-1] + 1
-    nrows = 2
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 5, nrows * 5))
-    ax[0, 0].imshow(inp)
-    for i in range(ncols - 1):
-        vmin = stitched_predictions[..., i].min()
-        vmax = stitched_predictions[..., i].max()
-        ax[0, i + 1].imshow(tar[..., i], vmin=vmin, vmax=vmax)
-        ax[1, i + 1].imshow(stitched_predictions[..., i], vmin=vmin, vmax=vmax)
-        ax[0, i + 1].set_title(f"Channel {i+1}", fontsize=15)
+    _, ax = plt.subplots(nrows=1, ncols=3, figsize=(20, 25))
+
+    ax[0].imshow(inp[0], vmax=np.quantile(inp[0], 0.99))
+    ax[1].imshow(pred[0][0], vmax=np.quantile(inp[0], 0.99))
+    ax[2].imshow(pred[0][1], vmax=np.quantile(inp[0], 0.99))
+
     # disable the axis for ax[1,0]
-    ax[0, 0].set_title("Input", fontsize=15)
-    ax[1, 0].axis("off")
-    # set y labels on the right for ax[0,2]
-    ax[0, 2].yaxis.set_label_position("right")
-    ax[0, 2].set_ylabel("Target", fontsize=15)
-
-    ax[1, 2].yaxis.set_label_position("right")
-    ax[1, 2].set_ylabel("Predicted", fontsize=15)
+    ax[0].set_title("Input", fontsize=15)
+    ax[1].set_title("Prediction Channel 1", fontsize=15)
+    ax[2].set_title("Prediction Channel 2", fontsize=15)
 
 
 def find_recent_metrics():
@@ -305,8 +231,8 @@ def get_highsnr_data(
 
     DATA = pooch.create(
         path="./data/",
-        base_url="https://download.fht.org/jug/msplit/ht_lif24/data/",
-        registry={f"ht_lif24_{highsnr_exposure_duration}.zip": None},
+        base_url="https://download.fht.org/jug/msplit/puncta/data/",
+        registry={f"ht_h23b_{highsnr_exposure_duration}.zip": None},
     )
     for fname in DATA.registry:
         DATA.fetch(fname, processor=pooch.Unzip(), progressbar=True)
@@ -317,7 +243,7 @@ def get_highsnr_data(
 
     _, highSNR_val_dset, highSNR_test_dset, _ = create_train_val_datasets(
         datapath=DATA.path
-        / f"ht_lif24_{highsnr_exposure_duration}.zip.unzip/{highsnr_exposure_duration}",
+        / f"ht_h23b_{highsnr_exposure_duration}.zip.unzip/{highsnr_exposure_duration}",
         train_config=train_data_config,
         val_config=val_data_config,
         test_config=test_data_config,

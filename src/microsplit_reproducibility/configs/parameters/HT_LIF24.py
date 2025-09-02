@@ -32,6 +32,7 @@ NM_2_DIR_NUM = {
     },
 }
 
+
 def get_musplit_parameters(
     channel_idx_list: list[int],
 ) -> dict:
@@ -46,16 +47,15 @@ def get_musplit_parameters(
     ).model_dump()
 
 
-
 def _get_nm_paths(
     dset_type: Literal["2ms", "3ms", "5ms", "20ms", "500ms"],
-    nm_path: str, 
+    nm_path: str,
     channel_idx_list: list[int],
 ) -> list[str]:
     nm_paths = []
     for channel_idx in channel_idx_list:
         fname = f"noise_model_Ch{channel_idx}.npz"
-        nm_paths.append(os.path.join(nm_path,fname))
+        nm_paths.append(os.path.join(nm_path, fname))
     return nm_paths
 
 
@@ -65,7 +65,9 @@ def get_microsplit_parameters(
     channel_idx_list,
     batch_size: int = 32,
 ) -> dict:
-    nm_paths = _get_nm_paths(dset_type, nm_path=nm_path, channel_idx_list=channel_idx_list[:-1])
+    nm_paths = _get_nm_paths(
+        dset_type, nm_path=nm_path, channel_idx_list=channel_idx_list[:-1]
+    )
     return SplittingParameters(
         algorithm="denoisplit",
         img_size=(64, 64),
@@ -76,6 +78,7 @@ def get_microsplit_parameters(
         nm_paths=nm_paths,
         kl_type="kl_restricted",
         batch_size=batch_size,
+        num_workers=4,
     ).model_dump()
 
 

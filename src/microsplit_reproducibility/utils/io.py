@@ -196,9 +196,11 @@ def get_model_checkpoint(ckpt_dir: str, mode: Literal["best", "last"] = "best") 
         elif mode == "last":
             if fname.startswith("last"):
                 output.append(fpath)
-    assert (
-        len(output) == 1
-    ), f"No {mode} checkpoint found in {ckpt_dir} or multiple found."
+    if len(output) > 1:
+        print(
+            f"Multiple {mode} checkpoints found in {ckpt_dir}. Selecting the first one.\n"
+            "If you experience issues when loading weights, please check the configuration"
+        )
     return output[0]
 
 
@@ -231,8 +233,8 @@ def load_model_checkpoint(
 
 def reformat_checkpoint(ckpt: dict[str, Any]) -> dict[str, Any]:
     ckpt_new = {}
-    for k, v in ckpt['state_dict'].items():
-        # print(k, v.shape) 
+    for k, v in ckpt["state_dict"].items():
+        # print(k, v.shape)
         if "noiseModel" in k:
             continue
         if "likelihood_NM" in k:
@@ -241,8 +243,9 @@ def reformat_checkpoint(ckpt: dict[str, Any]) -> dict[str, Any]:
         # if k not in light_model.state_dict().keys():
         #     print(k)
 
-    ckpt['state_dict'] = ckpt_new
+    ckpt["state_dict"] = ckpt_new
     return ckpt
+
 
 def _load_file(file_path: str) -> Any:
     """Load a file with the appropriate method based on the file extension.

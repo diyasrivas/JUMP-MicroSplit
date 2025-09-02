@@ -242,7 +242,8 @@ def compute_high_snr_stats(highres_data, pred_unnorm, verbose=True):
     ssim_list = []
     msssim_list = []
     for ch_idx in range(highres_data[0].shape[-1]):
-        # list of gt and prediction images. This handles both 2D and 3D data. This also handles when individual images are lists.
+        # list of gt and prediction images. This handles both 2D and 3D data. 
+        # This also handles when individual images are lists.
         gt_ch, pred_ch = _get_list_of_images_from_gt_pred(
             highres_data, pred_unnorm, ch_idx
         )
@@ -285,6 +286,7 @@ def compute_high_snr_stats(highres_data, pred_unnorm, verbose=True):
                 ).item()
             )
         msssim_list.append((np.mean(ms_ssim), compute_SE(ms_ssim)))
+    
     if verbose:
 
         def ssim_str(ssim_tmp):

@@ -1,17 +1,18 @@
 from typing import Callable, Union
 
 import torch
-from torch.utils.data import Dataset
 from numpy.typing import NDArray
 
-from careamics.lvae_training.dataset import DatasetConfig, DataType
+from careamics.lvae_training.dataset import DatasetConfig, DataType, DataSplitType
 from careamics.lvae_training.dataset import (
     LCMultiChDloader,
     MultiChDloader,
+    MultiChDloaderRef,
     MultiFileDset,
+    MultiCropDset
 )
 
-SplittingDataset = Union[LCMultiChDloader, MultiChDloader, MultiFileDset]
+SplittingDataset = Union[LCMultiChDloader, MultiChDloader, MultiFileDset, MultiCropDset]
 
 
 def create_train_val_datasets(
@@ -28,11 +29,13 @@ def create_train_val_datasets(
         # DataType.ExpMicroscopyV1,
         DataType.ExpMicroscopyV2,
         DataType.TavernaSox2GolgiV2,
-        DataType.Pavia3SeqData,
     ]:
         dataset_class = MultiFileDset
     elif train_config.multiscale_lowres_count > 1:
         dataset_class = LCMultiChDloader
+    elif train_config.data_type in [
+        DataType.HTH23BData]:
+        dataset_class = MultiChDloaderRef
     else:
         dataset_class = MultiChDloader
 
@@ -45,6 +48,9 @@ def create_train_val_datasets(
     )
     max_val = train_data.get_max_val()
     val_config.max_val = max_val
+    if train_config.datasplit_type == DataSplitType.All:
+        val_config.datasplit_type = DataSplitType.All
+        test_config.datasplit_type = DataSplitType.All # TODO temporary hack
     val_data = dataset_class(
         val_config,
         datapath,
@@ -82,6 +88,7 @@ def create_train_val_datasets(
 
 def get_target_images(test_dset: SplittingDataset) -> NDArray:
     """Get the target images."""
-    if test_dset.data_type in [DataType.HTIba1Ki67,]:
+    if test_dset.data_type in [
+        DataType.HTIba1Ki67,
+    ]:
         return test_dset._data
-    

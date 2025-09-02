@@ -45,7 +45,7 @@ In order to run the examples, you will need to install PyTorch, CAREamics and th
 
 1. Create a new environment with the package manager of your choice, we recommand [mamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html), but you can also use [conda](https://docs.anaconda.com/miniconda/) (in which case, substitute `mamba` for `conda` in the following bash commands).
     ```bash
-    mamba create -n microsplit python=3.9
+    mamba create -n microsplit python=3.10
     mamba activate microsplit
     ```
 > [!TIP]  
@@ -136,7 +136,7 @@ The notebooks were tested on multiple systems including Linux, Mac and Windows; 
 - (soon) [Noise models summary]()
 
 
-## Cite MicroSplit
+## MicroSplit Documentation
 
 <!--- Add citation --->
 
@@ -155,6 +155,9 @@ The notebooks were tested on multiple systems including Linux, Mac and Windows; 
 - [HT-LIF24 (20ms)](https://download.fht.org/jug/msplit/ht_lif24/data/ht_lif24_20ms.zip)
 - [HT-LIF24 (500ms)](https://download.fht.org/jug/msplit/ht_lif24/data/ht_lif24_500ms.zip)
 - [Chicago-Sch23](https://download.fht.org/jug/msplit/chicago_sch23/data/chicago_sch23.zip)
+- [HHMI-D25-8bit](https://download.fht.org/jug/msplit/hhmi_d25/hhmid25_8bit.zip)
+- [HHMI-D25-16bit](https://download.fht.org/jug/msplit/hhmi_d25/hhmi_d25_16bit.zip)
+- [HHMI-D25-16bit-0.25](https://download.fht.org/jug/msplit/hhmi_d25/hhmi_d25_16bit_binned.zip)
 
 ## License
 

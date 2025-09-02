@@ -137,16 +137,14 @@ def clean_ax(ax):
     ax.tick_params(left=False, right=False, top=False, bottom=False)
 
 
-
-
-def plot_input_patches(dataset, num_channels: int, num_samples: int = 3, random_samples=None, patch_size=None):
+def plot_input_patches(dataset, num_channels: int, num_samples: int = 3, samples_idxs=None, patch_size=None):
     old_patch_size = None
     if patch_size is not None:
         old_patch_size = dataset._img_sz
         grid_size = dataset._grid_sz
         dataset.set_img_sz((patch_size,patch_size), grid_size)
     
-    if random_samples is None:
+    if samples_idxs is None:
         # Select 3 random samples from the dataset
         random_samples = random.sample(range(len(dataset)), num_samples)
     
@@ -166,15 +164,62 @@ def plot_input_patches(dataset, num_channels: int, num_samples: int = 3, random_
             else:    
                 ax[i, input_ch].set_title(f"Input LC[{input_ch}] ")
         # Plot each dimension
+        vmin = sample.min()
+        vmax = sample.max()
         for channel_idx in range(num_channels):
-            ax[i, input_count+channel_idx].imshow(sample[channel_idx])
-            ax[i, input_count+channel_idx].set_title(f"Channel {channel_idx}")
+            ax[i, input_count+channel_idx].imshow(sample[channel_idx], vmin=vmin, vmax=vmax)
+            ax[i, input_count+channel_idx].set_title(f"Channel {channel_idx + 1}")
     
     if old_patch_size is not None:
         dataset.set_img_sz((old_patch_size,old_patch_size), grid_size)
     
     clean_ax(ax)
     return random_samples
+
+
+def plot_input_patches_3d(dataset, num_channels: int, num_samples: int = 3, samples_idxs=None, patch_size=None):
+    old_patch_size = None
+    if patch_size is not None:
+        old_patch_size = dataset._img_sz
+        grid_size = dataset._grid_sz
+        dataset.set_img_sz((patch_size,patch_size), grid_size)
+    
+    if samples_idxs is None:
+        # Select 3 random samples from the dataset
+        random_samples = random.sample(range(len(dataset)), num_samples)    
+    
+    input_count = dataset[0][0].shape[0]
+    img_sz = 3
+    # Plot all dimensions of the selected samples
+    _, ax = plt.subplots(
+        figsize=(img_sz*(input_count + num_channels), img_sz*num_samples),
+        ncols=(input_count + num_channels),
+        nrows=num_samples
+    )
+
+    for i, sample_idx in enumerate(random_samples):
+        inp, sample = dataset[sample_idx]  # Get the target data of the sample
+        
+        # get random slice # TODO allow selection? also other datasets might have different shapes or dimension ordering
+        random_slice = random.randint(0, inp.shape[-3]-1)
+        
+        for input_ch in range(input_count):
+            ax[i, input_ch].imshow(inp[input_ch][random_slice])
+            if input_ch == 0:
+                ax[i, input_ch].set_title(f"Primary Input")
+            else:    
+                ax[i, input_ch].set_title(f"Input LC[{input_ch}] ")
+        # Plot each dimension
+        for channel_idx in range(num_channels):
+            ax[i, input_count+channel_idx].imshow(sample[channel_idx][random_slice])
+            ax[i, input_count+channel_idx].set_title(f"Channel {channel_idx + 1}")
+    
+    if old_patch_size is not None:
+        dataset.set_img_sz((old_patch_size,old_patch_size), grid_size)
+    
+    clean_ax(ax)
+    return random_samples
+
 
 def plot_training_outputs(dataset, model, num_channels: int, num_samples: int = 3):
     # Select 3 random samples from the dataset
