@@ -38,6 +38,7 @@ of the MicroSplit paper.
 > A GPU is necessary for training the models from scratch. For users interested in testing the examples from the paper, our 
 notebooks allow loading pre-trained models and running the inference even without GPU access.
 
+Depending in your system, the installatioin will take between 5 and 10 minutes, on systems that also require a fresh CONDA/MAMBA installation maybe even a few minutes longer.
 
 ### Set up a Python environment
 
