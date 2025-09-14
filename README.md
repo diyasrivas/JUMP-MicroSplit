@@ -95,7 +95,7 @@ In order to run the examples, you will need to install PyTorch, CAREamics and th
 > - 02: Apply MicroSplit to data
 > - 03: Calibrate the MicroSplit errors
 >
-> The notebooks are designed to be run in order, but we designed them so that each notebook, except the calibration, has entry points using pre-trained models.
+> The notebooks are designed to be run in order, but we designed them so that each notebook, except the calibration, has entry points using pre-trained models. Hence, depending on your interests, you can test MicroSplit within some minutes of browsing/running these Jupyter Notebooks. If you want to run each step, you will likely need 30-60 minutes, if you plan to fully train all networks, and depending on your GPU, this process can take several hours.
 
 ## Troubleshooting
 
