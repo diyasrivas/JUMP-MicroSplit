@@ -43,8 +43,8 @@ def create_train_val_datasets(
         train_config,
         datapath,
         load_data_fn=load_data_func,
-        val_fraction=0.1,
-        test_fraction=0.1,
+        val_fraction=0.05,
+        test_fraction=0.0,
     )
     max_val = train_data.get_max_val()
     val_config.max_val = max_val
@@ -55,16 +55,16 @@ def create_train_val_datasets(
         val_config,
         datapath,
         load_data_fn=load_data_func,
-        val_fraction=0.1,
-        test_fraction=0.1,
+        val_fraction=0.05,
+        test_fraction=0.0,
     )
     test_config.max_val = max_val
     test_data = dataset_class(
         test_config,
         datapath,
         load_data_fn=load_data_func,
-        val_fraction=0.1,
-        test_fraction=0.1,
+        val_fraction=0.05,
+        test_fraction=0.0,
     )
     mean_val, std_val = train_data.compute_mean_std()
     train_data.set_mean_std(mean_val, std_val)
