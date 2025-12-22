@@ -10,6 +10,10 @@ from .dataset_creation import (
     verify_dataset_structure,
 )
 
+from .noise_model import (
+    load_data_for_noise_model,
+)
+
 __all__ = [
     "JUMPDatasetBuilder",
     "Channel",
@@ -20,4 +24,5 @@ __all__ = [
     "visualize_single_image",
     "visualize_dataset_sample",
     "verify_dataset_structure",
+    "load_data_for_noise_model", 
 ]
