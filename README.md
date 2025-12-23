@@ -1,168 +1,246 @@
 # MicroSplit
 
-
 [![Library](https://img.shields.io/badge/Library-CAREamics-orange)](https://careamics.github.io)
 [![License](https://img.shields.io/pypi/l/careamics.svg?color=green)](https://github.com/CAREamics/MicroSplit-reproducibility/blob/main/LICENSE)
 [![Image.sc](https://img.shields.io/badge/Got%20a%20question%3F-Image.sc-blue)](https://forum.image.sc/)
 
+## Overview
+
+This repository implements MicroSplit for [Cell Painting](https://jump-cellpainting.broadinstitute.org/) data, providing modular workflows optimized for large-scale image analysis and HPC environments. It extends the original [MicroSplit-reproducibility](https://github.com/CAREamics/MicroSplit-reproducibility) with data handling, metadata integration, and scalable processing pipelines for cell painting.
 
 ## What is MicroSplit
 
-MicroSplit is a deep learning-based computational multiplexing technique that enhances
-the imaging of multiple cellular structures within a single fluorescent channel, 
-allowing to image more cellular structures, image them faster, and at reduced overall light exposure.
+MicroSplit is a deep learning-based computational multiplexing technique that enables imaging of multiple cellular structures within a single fluorescent channel, allowing increased throughput, reduced acquisition time, and lower light exposure. The method uses a hierarchical variational auto-encoder (LVAE) with lateral context.
+MicroSplit is implemented in the [CAREamics library](https://careamics.github.io). Using MicroSplit, cell painting assays can be revised to enable multiple cellular structures to be imaged in a single fluorescent channel and then computationally unmixed before image analysis steps.
 
-<p>
-    <img src="img/Fig1_a.png" width="800" />
-</p>
+## Workflow Architecture
 
-<p>
-    <img src="img/Fig1_b.png" width="800" />
-</p>
+### Phase 1: Dataset Creation
+**Location:** `src/microsplit_reproducibility/workflows/dataset_creation/`
+Fetches raw images from JUMP data sources, combines channels, and structures data for training:
+- `JUMPDatasetBuilder`: Main interface for dataset creation
+- Dataset-specific functions: `create_orf_dataset()`, `create_crispr_dataset()`, `create_compound_dataset()`, `create_pilot_dataset()`
+- Handles: AWS S3 integration via `jump-portrait`, metadata parsing, channel normalization, TIFF export
 
-MicroSplit is based on a hierarchical variational auto-encoder (LVAE) using lateral context.
+### Phase 2: Noise Model Creation
+**Location:** `src/microsplit_reproducibility/workflows/noise_model/`
+Loads data for CAREamics Noise2Void training:
+- `load_data_for_noise_model()`: Single function to prepare data from Phase 1 output
+- Integrates directly with CAREamics N2V workflow
 
-<p>
-    <img src="img/Fig2.png" width="800" />
-</p>
+### Phase 3: Training
+**Location:** `src/microsplit_reproducibility/datasets/JUMP.py`
+- `get_train_val_data()`: Loads Phase 1 TIFFs for model training
+- Configuration via config factories
+- Training handled by CAREamics + PyTorch Lightning
 
-MicroSplit is implemented in the [CAREamics library](https://careamics.github.io), and
-this repository contains example notebooks and utilities for reproducing the results
-of the MicroSplit paper.
+### Phase 4: Prediction
+**Location:** `src/microsplit_reproducibility/workflows/prediction/`, `examples/2D/JUMP/HPC/`
+Applies trained models to generate predictions:
+- Metadata mapping and result storage
+- Preparing the output for image analysis with cellprofiler
 
-
-## How to use this repository
-
+## Installation
 
 > [!IMPORTANT]  
-> A GPU is necessary for training the models from scratch. For users interested in testing the examples from the paper, our 
-notebooks allow loading pre-trained models and running the inference even without GPU access.
+> A GPU is required for training. Pre-trained models can be used for inference without GPU access.
 
-Depending in your system, the installatioin will take between 5 and 10 minutes, on systems that also require a fresh CONDA/MAMBA installation maybe even a few minutes longer.
+Installation takes 5-10 minutes with an existing Conda/Mamba setup.
 
-### Set up a Python environment
+### Environment Setup
 
-In order to run the examples, you will need to install PyTorch, CAREamics and the utilities in this repository.
-
-1. Create a new environment with the package manager of your choice, we recommand [mamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html), but you can also use [conda](https://docs.anaconda.com/miniconda/) (in which case, substitute `mamba` for `conda` in the following bash commands).
+1. Create a Python environment (Python 3.10 recommended):
     ```bash
     mamba create -n microsplit python=3.10
     mamba activate microsplit
     ```
+
 > [!TIP]  
-> If you are on a mac, and wish to make use of Mac silicon GPU (using M1, M2 and M3 chips), create the environment using the following commands:
->    ```bash
->    CONDA_SUBDIR=osx-arm64 conda create -n microsplit python=3.9
->    conda activate microsplit
->    conda config --env --set subdir osx-arm64
->    ```
+> For Apple Silicon (M1/M2/M3), use:
+> ```bash
+> CONDA_SUBDIR=osx-arm64 conda create -n microsplit python=3.9
+> conda activate microsplit
+> conda config --env --set subdir osx-arm64
+> ```
 
-2. :warning: Install PyTorch following the instructions on the [official website](https://pytorch.org/get-started/locally/).
+2. Install PyTorch following the [official instructions](https://pytorch.org/get-started/locally/) for your system.
 
-3. You can test that you have GPU access by running the following command:
+3. Verify GPU access:
     ```bash
+    # NVIDIA CUDA
     python -c "import torch; print([torch.cuda.get_device_properties(i) for i in range(torch.cuda.device_count())])"
-    ```
-    To confirm that mac silicon is available do:
-    ```bash
+    
+    # Apple Silicon
     python -c "import torch; import platform; print(platform.processor() in ('arm', 'arm64') and torch.backends.mps.is_available())"
     ```
 
-4. Install MicroSplit utilities from this repository by cloning and navigating into it, then by installing all the necessary packages using `pip`.
-
+4. Install this repository:
     ```bash
-    git clone https://github.com/CAREamics/MicroSplit-reproducibility.git
-    cd MicroSplit-reproducibility
+    git clone https://github.com/[your-username]/JUMP-MicroSplit.git
+    cd JUMP-MicroSplit
     pip install .
     ```
 
-> [!TIP]  
-> If you are on a Windows machine and have trouble running unix-like commands, check out [Git for Windows](https://gitforwindows.org/). This tool installs Git Bash, a terminal that you can use to run the commands above.
+## Quick Start
+### Phase 1: Create Dataset
+```python
+genes = ["TP53", "KRAS", "EGFR", "BRAF", "MYC"]
+channels = ["DNA", "RNA", "ER", "AGP", "Mito"]
 
+builder = JUMPDatasetBuilder(
+    dataset_type="crispr",
+    channels=channels,
+    output_dir="./crispr_5gene_data"
+)
+profiles = load_crispr_profiles(source="source_4")
+for gene in genes:
+    crispr_ids = select_crispr_by_gene(profiles, gene)
+    create_crispr_dataset(
+        crispr_ids=crispr_ids,
+        channels=[Channel[ch] for ch in channels],
+        output_dir=Path(f"./crispr_5gene_data/{gene}"),
+        images_per_perturbation=10
+    )
+```
 
-### Clone the repository to access the examples
+### Phase 2: Create Noise Models
+```python
+channels = ["DNA", "RNA", "ER", "AGP", "Mito"]
 
-5. You can now open the notebooks in `jupyter` by running the following command and navigating to the example folder:
+for channel in channels:
+    # Load single-channel data for N2V training
+    noise_data = load_data_for_noise_model(
+        dataset_dir="./crispr_5gene_data",
+        channels=[channel],  
+        max_images=None 
+    )
+    config = create_n2v_configuration(
+        experiment_name=f"crispr_{channel.lower()}_noise_model",
+        data_type="array",
+        axes="YX",
+        patch_size=[64, 64],
+        batch_size=64,
+        num_epochs=10
+    )
+    
+    careamist = CAREamist(source=config)
+    careamist.train(train_source=noise_data)
+    careamist.save(f"./noise_models/{channel.lower()}_n2v_model")
+```
 
-    ```bash
-    jupyter notebook
-    ```
+### Phase 3: Train MicroSplit Model
+```python
+target_channels = ["DNA", "RNA", "ER", "AGP", "Mito"]
+dataset_dir = "./crispr_5gene_data"
+noise_models_dir = "./noise_models"
 
-> [!NOTE]  
-> The Jupyter notebooks in each example are numbered by their order in the MicroSplit pipeline:
-> - 00: Create the noise models for the dataset
-> - 01: Train the MicroSplit model
-> - 02: Apply MicroSplit to data
-> - 03: Calibrate the MicroSplit errors
->
-> The notebooks are designed to be run in order, but we designed them so that each notebook, except the calibration, has entry points using pre-trained models. Hence, depending on your interests, you can test MicroSplit within some minutes of browsing/running these Jupyter Notebooks. If you want to run each step, you will likely need 30-60 minutes, if you plan to fully train all networks, and depending on your GPU, this process can take several hours.
+train_data_config, val_data_config, test_data_config = get_data_configs(
+    channel_idx_list=target_channels
+)
+
+experiment_params = get_microsplit_parameters(
+    nm_path=noise_models_dir,
+    channel_idx_list=target_channels,
+    batch_size=8
+)
+
+train_dset, val_dset, test_dset, data_stats = create_train_val_datasets(
+    datapath=dataset_dir,
+    train_config=train_data_config,
+    val_config=val_data_config,
+    test_config=test_data_config,
+    load_data_func=get_train_val_data
+)
+
+train_dloader = DataLoader(train_dset, batch_size=8, shuffle=True)
+val_dloader = DataLoader(val_dset, batch_size=8, shuffle=False)
+
+train_microsplit_model(
+    train_dloader=train_dloader,
+    val_dloader=val_dloader,
+    data_stats=data_stats,
+    experiment_params=experiment_params,
+    num_epochs=50,
+    checkpoint_dir="./checkpoints/crispr_5gene_data"
+)
+```
+
+### Phase 4: Prediction and metadata mapping
+```python
+predict_and_evaluate(
+    dataset_dir="./crispr_5gene_data",
+    checkpoint_dir="./checkpoints/crispr_5gene_data", 
+    prediction_dir="./predictions/crispr_5gene_data",
+    noise_models_dir="./noise_models",
+    channels=["DNA", "RNA", "ER", "AGP", "Mito"],
+    mmse_count=50
+)
+
+original_metadata = dataset_dir/"original_metadata.csv"
+metadata_df = create_test_metadata_mapping(
+    original_metadata_csv=original_metadata,
+    prediction_dir=prediction_dir,
+    channels=channels,
+    output_csv="metadata_mapping.csv"
+)
+
+generate_cellprofiler_loaddata_csv(
+    metadata_mapping_df=metadata_df,
+    prediction_dir=prediction_dir,
+    channels=channels,
+    output_csv="cellprofiler_input.csv"
+)
+```
+
+### HPC Batch Processing (Optional)
+
+We **strongly recommend** to run training and prediction via HPC for processing multiple channel combinations or large datasets.
+Remember to configure job arrays and resource allocation in SLURM scripts based on your HPC environment.
+
+**Training:**
+```bash
+cd examples/2D/JUMP/HPC
+sbatch train_all_combinations.sh
+sbatch 5channels_predictions.sh
+```
+
+## [CellPaintMONO](https://github.com/juglab/CellPaintMONO)
+After running MicroSplit on the cell painting data, we can evualate how the Microsplit-predicted cell painting data performs in comparison to the original data from pre-processing to profile creation. We use [CellProfiler](https://cellprofiler.org/) v.4.2.8 to run two analysis pipelines, adapted from the [cpg0000-jump-pilot experiment pipelines](https://github.com/jump-cellpainting/2024_Chandrasekaran_NatureMethods_CPJUMP1/tree/56845c7d4dc322652952783d91dae0ffef47829f/pipelines/2020_11_04_CPJUMP1) and then perform some downstream analysis tasks on the profiles. The tools for analysis and comparison of cell painting data, as well as the entire image analysis workflow can be found in the CellPaintMONO repository.
+
+## Tested Systems
+
+#### System 1
+- **OS:** Red Hat Enterprise Linux 8.10
+- **GPU:** NVIDIA A40-16Q, 16GB
+- **CUDA:** 12.4
+
+#### System 2
+- **OS:** macOS 14.1
+- **GPU:** Apple M3, 16GB
+
+#### System 3
+- **OS:** Windows 10 Enterprise
+- **GPU:** NVIDIA RTX A3000, 6GB
+- **CUDA:** 12.3
 
 ## Troubleshooting
 
-A list of problems that might be encountered and suggestions on how to solve them.
+**Problem:** NVIDIA driver version error  
+**Solution:** Downgrade PyTorch:
+```bash
+pip3 install torch==2.2 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
 
-1. **Problem:** An error saying that your NVIDIA Drivers are too old.
+**Problem:** Mac Silicon GPU test returns False  
+**Solution:** Install PyTorch via pip (not conda) and ensure macOS-arm64 Anaconda/Mamba release.
 
-   **Solution:** Try downgrading your PyTorch version, for example:
-   ```bash
-   pip3 install torch==2.2 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-   ```
-
-2. **Problem:** Test for Mac silicon GPU above returns False.
-   
-   **Solution:** Make sure you install PyTorch with pip, installing it with conda might not work. Make sure you installed the macOS-arm64 release of Anaconda or Mamba.
-
-## Systems tested
-
-The notebooks were tested on multiple systems including Linux, Mac and Windows; more detailed system specifications are as follows:
-
-#### System 1
-- **OS Version:** Red Hat Enterprise Linux 8.10
-- **GPU:** NVIDIA A40-16Q, 16GB
-- **CudaToolKit Version:** 12.4
-
-#### System 2
-- **OS Version:** macOS 14.1
-- **GPU:** Apple M3 GPU, 16GB
-
-#### System 3
-- **OS Version:** Windows 10 Enterprise
-- **GPU:** Nvidia RTX A3000 Laptop, 6GB
-- **CudaToolKit Version:** 12.3
-
-## Useful links
-
-- [CAREamics documentation](https://careamics.github.io)
-- (soon) [MicroSplit algorithm summary]()
-- (soon) [Noise models summary]()
-
-
-## MicroSplit Documentation
-
-<!--- Add citation --->
-
-(soon)
-
-## Links to all datasets used in the manuscript
-- [HT-H24](https://download.fht.org/jug/msplit/ht_h24/data/ht_h24.zip)
-- [HT-P32A](https://download.fht.org/jug/msplit/ht_p23a/data/ht_p23a.zip)
-- [HT-P23B](https://download.fht.org/jug/msplit/ht_p23b/data/ht_p23b.zip)
-- [Pavia-P24](https://download.fht.org/jug/msplit/pavia_p24/data/pavia_p24.zip)
-- [HT-T24](https://download.fht.org/jug/msplit/ht_t24/data/ht_t24.zip)
-
-- [HT-LIF24 (2ms)](https://download.fht.org/jug/msplit/ht_lif24/data/ht_lif24_2ms.zip)
-- [HT-LIF24 (3ms)](https://download.fht.org/jug/msplit/ht_lif24/data/ht_lif24_3ms.zip)
-- [HT-LIF24 (5ms)](https://download.fht.org/jug/msplit/ht_lif24/data/ht_lif24_5ms.zip)
-- [HT-LIF24 (20ms)](https://download.fht.org/jug/msplit/ht_lif24/data/ht_lif24_20ms.zip)
-- [HT-LIF24 (500ms)](https://download.fht.org/jug/msplit/ht_lif24/data/ht_lif24_500ms.zip)
-- [Chicago-Sch23](https://download.fht.org/jug/msplit/chicago_sch23/data/chicago_sch23.zip)
-- [HHMI-D25-8bit](https://download.fht.org/jug/msplit/hhmi_d25/hhmid25_8bit.zip)
-- [HHMI-D25-16bit](https://download.fht.org/jug/msplit/hhmi_d25/hhmi_d25_16bit.zip)
-- [HHMI-D25-16bit-0.25](https://download.fht.org/jug/msplit/hhmi_d25/hhmi_d25_16bit_binned.zip)
+## Resources
+- [Original MicroSplit Repository](https://github.com/CAREamics/MicroSplit-reproducibility)
+- [CAREamics Documentation](https://careamics.github.io)
+- [Cell Painting Gallery](https://github.com/broadinstitute/cellpainting-gallery)
+- [JUMP Cell Painting Consortium](https://jump-cellpainting.broadinstitute.org/)
+- [JUMP Hub](https://broadinstitute.github.io/jump_hub/)
 
 ## License
 
-This project is licensed under BSD-3-Clause License - see the [LICENSE](LICENSE) for details.
-
-
-    
+BSD-3-Clause License - see [LICENSE](LICENSE) for details.
