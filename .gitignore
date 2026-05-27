@@ -183,3 +183,6 @@ cython_debug/
 **/metrics.csv
 **/hparams.yaml
 examples/2D/JUMP/HPC/
+
+# papers
+**.pdf 

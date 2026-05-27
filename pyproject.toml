@@ -45,6 +45,24 @@ dependencies = [
     "czifile",
     "nd2reader",
     "microssim",
+    # Cell Painting / JUMP workflow dependencies
+    "tifffile>=2022.0",
+    "numpy>=1.22",
+    "pandas>=1.4",
+    "scikit-image>=0.19",
+    "tqdm>=4.60",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+jump = [
+    # For downloading from the Cell Painting Gallery
+    "jump-portrait>=0.2",
+]
+hpc = [
+    # Extras for HPC training / prediction scripts
+    "psutil>=5.9",
+    "polars>=0.19",
 ]
 
 [project.urls]
