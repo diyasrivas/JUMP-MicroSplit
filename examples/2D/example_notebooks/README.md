@@ -57,10 +57,8 @@ img = get_jump_image(
     batch='2020_11_04_CPJUMP1',
     plate='BR00117015',
     well='B02',
-    site=1,
-    channel=5,       # DNA = channel index 5
-    cell_type='A549',
-    correction=None,
+    site='1',
+    channel='DNA',   # channel name string, not an integer index
 )
 ```
 
@@ -79,18 +77,19 @@ larger datasets, and longer training runs.
 
 ## Expected outputs
 
-After running all notebooks you will have:
+All outputs go to `./cpg0000_demo/` (gitignored — delete to start fresh):
 
 ```
-cpg0000_training_dataset/
-    combined/          float32 combined images
-    DNA/ RNA/ ER/ AGP/ Mito/   uint16 per-channel images
-    noise_models/      noise_model_{channel}.npz
-    checkpoints/       model_*.ckpt + last.ckpt
-    training_stats.npz
-    metadata.csv
-
-cpg0000_predictions/
-    mmse/              MMSE predictions (uint16 .tif)
-    sample_0/          Posterior sample (uint16 .tif)
+cpg0000_demo/
+    images/            raw downloaded TIFFs from Cell Painting Gallery
+    dataset/
+        combined/      float32 combined images
+        DNA/ RNA/ ER/ AGP/ Mito/   uint16 per-channel images
+        noise_models/  noise_model_{channel}.npz
+        checkpoints/   model_*.ckpt + last.ckpt
+        training_stats.npz
+        metadata.csv
+    predictions/
+        mmse/          MMSE predictions (uint16 .tif)
+        sample_0/      Posterior sample (uint16 .tif)
 ```

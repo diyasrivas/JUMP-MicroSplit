@@ -1,15 +1,15 @@
-# 2D MicroSplit Examples
+# MicroSplit Examples with Cell Painting data
 
-MicroSplit channel-unmixing experiments for 2D Cell Painting data.
+MicroSplit channel-unmixing experiments for Cell Painting data.
 
 ## Experiments
 
 | Folder | Dataset | Cell line(s) | Status |
 |--------|---------|-------------|--------|
-| [`cpg0000-jump-pilot/`](cpg0000-jump-pilot/) | JUMP-CP pilot | A549, U2OS | Complete |
-| [`cpg0029-chroma-pilot/`](cpg0029-chroma-pilot/) | ChromaLive pilot | U2OS | Complete |
-| [`cpg0036-EU-OS-bioactives/`](cpg0036-EU-OS-bioactives/) | EU-OS bioactives screen | U2OS | In progress |
-| [`cpg0039-garcia-fossa-livecellpainting/`](cpg0039-garcia-fossa-livecellpainting/) | Live Cell Painting | TBD | In progress |
+| [`cpg0000-jump-pilot/`](cpg0000-jump-pilot/) | JUMP-CP pilot | A549, U2OS |
+| [`cpg0029-chroma-pilot/`](cpg0029-chroma-pilot/) | ChromaLive pilot | U2OS | 
+| [`cpg0036-EU-OS-bioactives/`](cpg0036-EU-OS-bioactives/) | EU-OS bioactives screen | U2OS |
+| [`cpg0039-garcia-fossa-livecellpainting/`](cpg0039-garcia-fossa-livecellpainting/) | Live Cell Painting |
 | [`example_notebooks/`](example_notebooks/) | cpg0000 small subset | A549 | Demo |
 | [`HT_LIF24/`](HT_LIF24/) | HeLa/HCT116 HT | HeLa, HCT116 | Baseline |
 
