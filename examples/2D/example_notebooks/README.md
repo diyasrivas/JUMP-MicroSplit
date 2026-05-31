@@ -1,26 +1,26 @@
 # MicroSplit Example Notebooks
 
 End-to-end walkthrough of the MicroSplit workflow using a **small subset** of
-the cpg0000-jump-pilot dataset. Designed to run on a laptop/workstation with
-moderate GPU (or CPU for sanity checking).
+cpg0016-jump (source_4, Batch1, 3 wells × 3 sites, U2OS cells). Designed to
+run on a laptop/workstation with a moderate GPU (or CPU for sanity checking).
 
 ## Context: JUMP Cell Painting datasets
 
-These notebooks use **cpg0000** (CPJUMP1 pilot, Chandrasekaran et al. *Nature
-Methods* 2024), which is small enough to download and demonstrate interactively.
-
-The full-scale JUMP Cell Painting dataset is **cpg0016** (Chandrasekaran et al.
-preprint 2023), which contains:
+These notebooks use **cpg0016** (Chandrasekaran et al. preprint 2023), the
+production-scale JUMP Cell Painting dataset:
 - ~116,000 unique compounds at a single site
 - 12,602 ORF over-expression reagents
 - 7,975 CRISPR-Cas9 knockouts (7,975 genes)
 - Acquired across 12 pharmaceutical and academic partner sites
-- Cell line: **U2OS** only (settled on U2OS based on cpg0000 pilot comparison)
-- Standard 5-channel Cell Painting (same channel mapping as cpg0000)
+- Cell line: **U2OS** only
+- Standard 5-channel Cell Painting: DNA=ch5, RNA=ch3, ER=ch4, AGP=ch2, Mito=ch1
 
-For production-scale unmixing on cpg0016 data, use the HPC scripts in
-`../cpg0000-jump-pilot/` (same channel mapping applies: DNA=ch5, RNA=ch3,
-ER=ch4, AGP=ch2, Mito=ch1) and train on U2OS plates.
+The demo downloads 9 FOVs (3 wells × 3 sites) from source_4/Batch1/BR00117035
+directly from the public Cell Painting Gallery S3 bucket using anonymous boto3
+access — no AWS credentials required.
+
+For production-scale unmixing, use the HPC scripts in
+`../cpg0016-jump/` (same channel mapping applies).
 
 ## Notebooks
 
@@ -46,21 +46,22 @@ jupyter lab
 
 ## How to download from the Cell Painting Gallery
 
-`00_datasets.ipynb` uses [`jump_portrait`](https://github.com/jump-cellpainting/jump-portrait)
-to download images directly from the Cell Painting Gallery S3 bucket:
+`00_datasets.ipynb` downloads images directly from the public S3 bucket using
+`boto3` with anonymous (unsigned) access — no credentials required:
 
 ```python
-from jump_portrait.fetch import get_jump_image
+import boto3, io, tifffile
+from botocore import UNSIGNED
+from botocore.config import Config
 
-img = get_jump_image(
-    source='cpg0000-jump-pilot',
-    batch='2020_11_04_CPJUMP1',
-    plate='BR00117015',
-    well='B02',
-    site='1',
-    channel='DNA',   # channel name string, not an integer index
-)
+s3  = boto3.client('s3', config=Config(signature_version=UNSIGNED))
+buf = io.BytesIO()
+s3.download_fileobj('cellpainting-gallery', key, buf)
+img = tifffile.imread(buf)
 ```
+
+Images are stored as `r{row:02d}c{col:02d}f{site:02d}p01-ch{ch_idx}sk1fk1fl1.tiff`
+under `cpg0016-jump/{source}/images/{batch}/images/{plate_folder}/Images/`.
 
 ## Relation to HPC scripts
 
@@ -77,10 +78,10 @@ larger datasets, and longer training runs.
 
 ## Expected outputs
 
-All outputs go to `./cpg0000_demo/` (gitignored — delete to start fresh):
+All outputs go to `./cpg0016_demo/` (gitignored — delete to start fresh):
 
 ```
-cpg0000_demo/
+cpg0016_demo/
     images/            raw downloaded TIFFs from Cell Painting Gallery
     dataset/
         combined/      float32 combined images
