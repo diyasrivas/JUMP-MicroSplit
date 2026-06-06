@@ -229,8 +229,8 @@ def predict_fov(
             channel_stack[..., ch_idx], max_val[ch_idx]
         )
 
-    # Combined input = sum of all channels
-    combined = channel_stack.sum(axis=-1).astype(np.float32)
+    # Combined input = average of channels (matches combine_channels default in training)
+    combined = channel_stack.mean(axis=-1).astype(np.float32)
     combined  = np.minimum(combined, max_val[-1])
 
     ms_frames  = build_multiscale_frames(combined, multiscale_lowres_count)
