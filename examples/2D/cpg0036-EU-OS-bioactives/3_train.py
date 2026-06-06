@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import datetime
 import glob
 import os
 import sys
@@ -28,6 +29,7 @@ import sys
 import numpy as np
 import torch
 from pytorch_lightning import Trainer
+from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
 
 from careamics.lightning import VAEModule
@@ -73,6 +75,12 @@ def parse_args():
     parser.add_argument("--test_fraction", type=float, default=0.1)
     parser.add_argument("--cache_size",    type=int,   default=64,
                         help="LRU cache size in frames")
+    parser.add_argument("--wandb_entity",  type=str,   default="juglab")
+    parser.add_argument("--wandb_project", type=str,   default="JUMP-MicroSplit")
+    parser.add_argument("--wandb_run_name", type=str,  default=None,
+                        help="Override run name (default: {dataset_dir_basename}_{YYYYMMDD})")
+    parser.add_argument("--no_wandb",      action="store_true",
+                        help="Disable wandb logging")
     return parser.parse_args()
 
 
@@ -205,10 +213,23 @@ def main():
         if hasattr(cb, "patience"):
             cb.patience = args.early_stopping_patience
 
+    run_name = args.wandb_run_name or (
+        f"{os.path.basename(dataset_dir)}_{datetime.date.today().strftime('%Y%m%d')}"
+    )
+    logger = True
+    if not args.no_wandb:
+        logger = WandbLogger(
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            name=run_name,
+        )
+        print(f"Wandb run: {args.wandb_project}/{run_name}")
+
     trainer = Trainer(
         max_epochs=num_epochs,
         accelerator="gpu",
         enable_progress_bar=True,
+        logger=logger,
         callbacks=callbacks,
         precision=training_config.precision,
         gradient_clip_val=training_config.gradient_clip_val,

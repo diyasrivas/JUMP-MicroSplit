@@ -39,6 +39,9 @@ COMPILE_FLAG="--compile"
 TRAIN_GRID_SIZE=64
 TEST_MODE=false
 DEPENDENCY_JOBS=""
+WANDB_ENTITY="juglab"
+WANDB_PROJECT="JUMP-MicroSplit"
+WANDB_FLAG=""
 
 SLURM_PARTITION="dgx"
 SLURM_TIME="24:00:00"
@@ -55,6 +58,9 @@ while [[ $# -gt 0 ]]; do
         --check_val_every)         CHECK_VAL_EVERY="$2";            shift 2 ;;
         --early_stopping_patience) EARLY_STOPPING_PATIENCE="$2";   shift 2 ;;
         --train_grid_size)         TRAIN_GRID_SIZE="$2";            shift 2 ;;
+        --wandb_entity)            WANDB_ENTITY="$2";               shift 2 ;;
+        --wandb_project)           WANDB_PROJECT="$2";              shift 2 ;;
+        --no_wandb)                WANDB_FLAG="--no_wandb";         shift ;;
         --no-compile)              COMPILE_FLAG="";                 shift ;;
         --test)
             TEST_MODE=true; NUM_EPOCHS=2; CHECK_VAL_EVERY=1
@@ -135,7 +141,9 @@ python "${PYTHON_SCRIPT}" \
     --check_val_every_n_epoch  ${CHECK_VAL_EVERY} \
     --early_stopping_patience  ${EARLY_STOPPING_PATIENCE} \
     --train_grid_size          ${TRAIN_GRID_SIZE} \
-    ${TEST_FLAG} ${COMPILE_FLAG}
+    --wandb_entity             "${WANDB_ENTITY}" \
+    --wandb_project            "${WANDB_PROJECT}" \
+    ${TEST_FLAG} ${COMPILE_FLAG} ${WANDB_FLAG}
 
 EXIT_CODE=\$?
 echo "End: \$(date) | Exit: \$EXIT_CODE"
