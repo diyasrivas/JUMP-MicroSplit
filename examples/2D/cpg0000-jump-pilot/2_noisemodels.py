@@ -11,8 +11,8 @@ Workflow:
   4. Save as noise_model_{channel}.npz
 
 Usage:
-    python 2_noisemodels.py --dataset_dir .../training_dataset_A549 \\
-                            --output_dir  .../training_dataset_A549/noise_models \\
+    python 2_noisemodels.py --dataset_dir .../training_dataset_cpg0000_A549 \\
+                            --output_dir  .../training_dataset_cpg0000_A549/noise_models \\
                             --channel DNA
 """
 
@@ -28,7 +28,7 @@ def main():
         description="Train per-channel noise model for cpg0000-jump-pilot"
     )
     parser.add_argument("--dataset_dir", required=True,
-                        help="Path to training_dataset_{cell_line}/")
+                        help="Path to training_dataset_cpg0000_{cell_line}/")
     parser.add_argument("--output_dir",  required=True,
                         help="Directory to write noise_model_{channel}.npz")
     parser.add_argument("--channel",     required=True,

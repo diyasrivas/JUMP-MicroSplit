@@ -16,8 +16,8 @@ Workflow:
 
 Usage:
     python 2_noisemodels.py \\
-        --dataset_dir /project/cell_paint_mono/training_datasets/training_dataset_cpg0039_Huh_7 \\
-        --output_dir  .../training_dataset_cpg0039_Huh_7/noise_models \\
+        --dataset_dir /project/cell_paint_mono/training_datasets/training_dataset_cpg0039_Huh7 \\
+        --output_dir  .../training_dataset_cpg0039_Huh7/noise_models \\
         --channel AO_Green
 """
 

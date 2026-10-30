@@ -2,11 +2,11 @@
 # Train per-channel noise models for cpg0039-garcia-fossa-livecellpainting (Step 2).
 #
 # Submits 2 parallel SLURM jobs (one per channel: AO_Green, AO_Red) or runs
-# sequentially. Run once per cell line.
+# sequentially.
 #
 # Usage:
-#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0039_Huh_7
-#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0039_MCF_7 --slurm
+#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0039_Huh7
+#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0039_Huh7 --slurm
 #   ./noise_models.sh --dataset_dir ... --slurm --dependency "DATASET_JOB_ID"
 #
 # Options:

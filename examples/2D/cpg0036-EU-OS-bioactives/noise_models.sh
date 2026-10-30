@@ -5,13 +5,13 @@
 # Run once per cell line, pointing at the correct dataset directory.
 #
 # Usage:
-#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0036_HepG2
-#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0036_U2OS --slurm
+#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0036_allsites_HepG2
+#   ./noise_models.sh --dataset_dir .../training_dataset_cpg0036_allsites_U2OS --slurm
 #   ./noise_models.sh --dataset_dir ... --slurm --dependency "DATASET_JOB_ID"
 #
 # Options:
 #   --dataset_dir DIR  Training dataset directory
-#                      (e.g. /project/cell_paint_mono/training_datasets/training_dataset_cpg0036_HepG2)
+#                      (e.g. /project/cell_paint_mono/training_datasets/training_dataset_cpg0036_allsites_HepG2)
 #   --slurm            Submit as SLURM jobs
 #   --partition NAME   SLURM GPU partition (default: dgx)
 #   --time HH:MM:SS    SLURM walltime (default: 4:00:00)

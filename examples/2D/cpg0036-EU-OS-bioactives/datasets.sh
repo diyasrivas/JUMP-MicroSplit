@@ -1,76 +1,59 @@
 #!/bin/bash
-# Build cpg0036-EU-OS-bioactives training dataset (Step 1).
-#
-# Run once per cell line (HepG2, U2OS). Both cell lines must be trained
-# separately; they produce separate dataset directories.
+# Steps 0+1 for cpg0036-EU-OS-bioactives: build the split manifests, then the training datasets.
 #
 # Usage:
-#   ./datasets.sh --cell_line HepG2
-#   ./datasets.sh --cell_line U2OS --slurm
-#   ./datasets.sh --cell_line HepG2 --samples 3500 --slurm
+#   ./datasets.sh                              # both cell lines, interactive (CPU)
+#   ./datasets.sh --cell_lines "HepG2" --slurm # one cell line as a SLURM job
+#   ./datasets.sh --skip_split                 # reuse existing manifests
 #
 # Options:
-#   --cell_line NAME   Cell line to build dataset for: HepG2 or U2OS (required)
-#   --data_dir DIR     Root of cpg0036 data for this cell line
-#                      (default: /project/cell_paint_mono/cpg0036-EU-OS-bioactives)
-#   --output_dir DIR   Where to write the dataset
-#                      (default: /project/cell_paint_mono/training_datasets/training_dataset_cpg0036_{cell_line})
-#   --samples N        Target training FOVs (default: 3500)
-#   --seed N           Random seed (default: 42)
-#   --plate_filter STR Optional plate-name substring to filter (repeat for multiple)
-#   --slurm            Submit as a SLURM job instead of running interactively
-#   --partition NAME   SLURM partition (default: cpu)
-#   --time HH:MM:SS    SLURM walltime (default: 8:00:00)
-#   --mem XG           SLURM memory (default: 32G)
+#   --cell_lines "HepG2 U2OS"     Space-separated (default: HepG2 U2OS)
+#   --n_train N                   Training FOVs per cell line (default: 300)
+#   --seed N                      (default: 42)
+#   --data_dir DIR                Root of raw data (default: /project/cell_paint_mono/cpg0036-EU-OS-bioactives)
+#   --splits_dir DIR              Manifest root (default: /project/cell_paint_mono/splits/cpg0036-EU-OS-bioactives)
+#   --output_base DIR             Dataset root (default: /project/cell_paint_mono/training_datasets)
+#   --skip_split                  Do not (re)run 0_split.py
+#   --slurm                       Submit as SLURM job(s)
+#   --partition NAME              (default: cpu)
+#   --time HH:MM:SS               (default: 4:00:00)
+#   --mem XG                      (default: 16G)
 
 set -euo pipefail
 
 SUBMIT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PYTHON_SCRIPT="${SUBMIT_DIR}/1_datasets.py"
+SPLIT_SCRIPT="${SUBMIT_DIR}/0_split.py"
+DATASET_SCRIPT="${SUBMIT_DIR}/1_datasets.py"
 
-CELL_LINE=""
-DATA_DIR="/project/cell_paint_mono/cpg0036-EU-OS-bioactives"
-OUTPUT_DIR=""
-SAMPLES=3500
+CELL_LINES=("HepG2" "U2OS")
+N_TRAIN=300
 SEED=42
-PLATE_FILTER_ARGS=()
+DATA_DIR="/project/cell_paint_mono/cpg0036-EU-OS-bioactives"
+SPLITS_DIR="/project/cell_paint_mono/splits/cpg0036-EU-OS-bioactives"
+OUTPUT_BASE="/project/cell_paint_mono/training_datasets"
+SKIP_SPLIT=false
 SLURM_MODE=false
-
 SLURM_PARTITION="cpu"
-SLURM_TIME="8:00:00"
-SLURM_MEM="32G"
+SLURM_TIME="4:00:00"
+SLURM_MEM="16G"
 SLURM_CPUS=4
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --cell_line)    CELL_LINE="$2";    shift 2 ;;
-        --data_dir)     DATA_DIR="$2";     shift 2 ;;
-        --output_dir)   OUTPUT_DIR="$2";   shift 2 ;;
-        --samples)      SAMPLES="$2";      shift 2 ;;
-        --seed)         SEED="$2";         shift 2 ;;
-        --plate_filter) PLATE_FILTER_ARGS+=("$2"); shift 2 ;;
-        --slurm)        SLURM_MODE=true;   shift ;;
+        --cell_lines)   read -ra CELL_LINES <<< "$2"; shift 2 ;;
+        --n_train)      N_TRAIN="$2";         shift 2 ;;
+        --seed)         SEED="$2";            shift 2 ;;
+        --data_dir)     DATA_DIR="$2";        shift 2 ;;
+        --splits_dir)   SPLITS_DIR="$2";      shift 2 ;;
+        --output_base)  OUTPUT_BASE="$2";     shift 2 ;;
+        --skip_split)   SKIP_SPLIT=true;      shift ;;
+        --slurm)        SLURM_MODE=true;      shift ;;
         --partition)    SLURM_PARTITION="$2"; shift 2 ;;
-        --time)         SLURM_TIME="$2";   shift 2 ;;
-        --mem)          SLURM_MEM="$2";    shift 2 ;;
-        --help)
-            sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
-            exit 0 ;;
+        --time)         SLURM_TIME="$2";      shift 2 ;;
+        --mem)          SLURM_MEM="$2";       shift 2 ;;
+        --help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
     esac
-done
-
-if [[ -z "$CELL_LINE" ]]; then
-    echo "ERROR: --cell_line is required (HepG2 or U2OS)" >&2
-    exit 1
-fi
-
-[[ -z "$OUTPUT_DIR" ]] && OUTPUT_DIR="/project/cell_paint_mono/training_datasets/training_dataset_cpg0036_${CELL_LINE}"
-
-# Build plate_filter argument if any
-PLATE_FILTER_EXTRA=""
-for PF in "${PLATE_FILTER_ARGS[@]+"${PLATE_FILTER_ARGS[@]}"}"; do
-    PLATE_FILTER_EXTRA+=" --plate_filter ${PF}"
 done
 
 _activate_conda() {
@@ -90,32 +73,34 @@ _activate_conda() {
     echo "ERROR: Conda not found" >&2; exit 1
 }
 
+_commands() {
+    local CL="$1"
+    if [[ "$SKIP_SPLIT" == false ]]; then
+        echo "python ${SPLIT_SCRIPT} --cell_lines ${CL} --n_train ${N_TRAIN} --seed ${SEED} --data_dir ${DATA_DIR} --out_dir ${SPLITS_DIR}"
+    fi
+    echo "python ${DATASET_SCRIPT} --cell_line ${CL} --splits_dir ${SPLITS_DIR} --out_base ${OUTPUT_BASE}"
+}
+
 echo "================================================================================" >&2
-echo "cpg0036 datasets | cell_line=${CELL_LINE} | samples=${SAMPLES}" >&2
-echo "  data_dir:   ${DATA_DIR}" >&2
-echo "  output_dir: ${OUTPUT_DIR}" >&2
+echo "cpg0036 split+datasets | cell_lines=${CELL_LINES[*]} | n_train=${N_TRAIN}" >&2
 echo "================================================================================" >&2
 
 if [[ "$SLURM_MODE" == false ]]; then
     _activate_conda
-    python "${PYTHON_SCRIPT}" \
-        --cell_line   "${CELL_LINE}" \
-        --data_dir    "${DATA_DIR}" \
-        --output_dir  "${OUTPUT_DIR}" \
-        --samples     "${SAMPLES}" \
-        --seed        "${SEED}" \
-        ${PLATE_FILTER_EXTRA}
+    for CL in "${CELL_LINES[@]}"; do
+        while IFS= read -r CMD; do eval "${CMD}"; done < <(_commands "${CL}")
+    done
     exit 0
 fi
 
-LOG_DIR="${OUTPUT_DIR}/logs"
-mkdir -p "${LOG_DIR}"
-
-JOB_ID=$(sbatch --parsable <<EOF
+SUBMITTED=()
+for CL in "${CELL_LINES[@]}"; do
+    LOG_DIR="${OUTPUT_BASE}/training_dataset_cpg0036_allsites_${CL}/logs"; mkdir -p "${LOG_DIR}"
+    JOB_ID=$(sbatch --parsable <<EOF
 #!/bin/bash
-#SBATCH --job-name=cpg0036_ds_${CELL_LINE}
-#SBATCH --output=${LOG_DIR}/datasets_${CELL_LINE}_%j.log
-#SBATCH --error=${LOG_DIR}/datasets_${CELL_LINE}_%j.log
+#SBATCH --job-name=cpg0036_ds_${CL}
+#SBATCH --output=${LOG_DIR}/datasets_${CL}_%j.log
+#SBATCH --error=${LOG_DIR}/datasets_${CL}_%j.log
 #SBATCH --partition=${SLURM_PARTITION}
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -123,24 +108,15 @@ JOB_ID=$(sbatch --parsable <<EOF
 #SBATCH --mem=${SLURM_MEM}
 #SBATCH --time=${SLURM_TIME}
 
-echo "Job \${SLURM_JOB_ID}: cpg0036 datasets ${CELL_LINE} | Node: \${SLURMD_NODENAME} | Start: \$(date)"
-
+echo "Job \${SLURM_JOB_ID}: cpg0036 ${CL} split+dataset | Node: \${SLURMD_NODENAME} | Start: \$(date)"
 $(declare -f _activate_conda)
 _activate_conda
-
-python "${PYTHON_SCRIPT}" \
-    --cell_line   "${CELL_LINE}" \
-    --data_dir    "${DATA_DIR}" \
-    --output_dir  "${OUTPUT_DIR}" \
-    --samples     "${SAMPLES}" \
-    --seed        "${SEED}" \
-    ${PLATE_FILTER_EXTRA}
-
-EXIT_CODE=\$?
-echo "End: \$(date) | Exit: \$EXIT_CODE"
-exit \$EXIT_CODE
+set -e
+$(_commands "${CL}")
+echo "End: \$(date)"
 EOF
-)
-
-echo "Submitted job ${JOB_ID}: cpg0036 datasets ${CELL_LINE}" >&2
-echo "${JOB_ID}"
+    )
+    SUBMITTED+=("${JOB_ID}")
+    echo "  Submitted job ${JOB_ID} for ${CL}" >&2
+done
+echo "${SUBMITTED[*]//\ /:}"

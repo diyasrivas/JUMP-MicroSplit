@@ -1,30 +1,26 @@
 #!/bin/bash
-# MicroSplit plate-level prediction for cpg0039-garcia-fossa-livecellpainting (Step 4).
-#
-# 2-channel Live Cell Painting (AO_Green, AO_Red). Always use the model for
-# the same cell line as the plate being predicted.
-#
-# Submits one SLURM job per plate.
+# Step 4 for cpg0039-garcia-fossa-livecellpainting: one SLURM job per test plate, predicting the test
+# FOVs listed in the split manifest. MMSE-50, no posterior samples.
 #
 # Usage:
-#   ./predict.sh --plate_dir /path/to/plate \
-#                --training_dir .../training_dataset_cpg0039_Huh_7
-#   ./predict.sh --batch 2021_XX_XX_Batch1 \
-#                --training_dir .../training_dataset_cpg0039_MCF_7 --slurm
+#   ./predict.sh --slurm                                          # every test plate
+#   ./predict.sh --plate_id 220607_092050_Plate_1 --slurm
+#   ./predict.sh --benchmark                                      # 1 FOV timing test, interactive
 #
 # Options:
-#   --batch NAME             Batch name for plate discovery
-#   --plate_dir DIR          Process a single plate directory
-#   --data_dir DIR           Root data dir (default: /project/cell_paint_mono/cpg0039-garcia-fossa-livecellpainting)
-#   --training_dir DIR       Training dataset dir for the same cell line (required)
-#   --output_dir DIR         Output root (default: /project/cell_paint_mono/predictions/cpg0039-garcia-fossa-livecellpainting)
-#   --mmse_count N           MMSE samples (default: 50)
-#   --num_posterior N        Posterior samples to save (default: 3)
-#   --grid_size N            Prediction grid size (default: 32)
-#   --max_fovs N             Limit FOVs per plate, 0=all (default: 0)
+#   --manifest FILE          (default: /project/cell_paint_mono/splits/cpg0039-garcia-fossa-livecellpainting/Huh7/split_manifest.csv)
+#   --plate_id ID            Process a single plate (default: every test plate in the manifest)
+#   --dataset_base DIR       (default: /project/cell_paint_mono/training_datasets)
+#   --output_dir DIR         (default: /project/cell_paint_mono/predictions/cpg0039-garcia-fossa-livecellpainting)
+#   --mmse_count N           (default: 50)
+#   --batch_size N           Tiles per forward pass (default: 256)
+#   --no_autocast            Disable bfloat16 autocast
+#   --max_fovs N             Limit FOVs per plate, 0 = all (default: 0)
+#   --benchmark              Run 1 FOV of the first plate interactively and report s/FOV
 #   --slurm                  Submit as SLURM jobs
 #   --partition NAME         (default: dgx)
-#   --time HH:MM:SS          (default: 48:00:00)
+#   --gres GRES              (default: gpu:71gb:1)
+#   --time HH:MM:SS          (default: 24:00:00)
 #   --mem XG                 (default: 64G)
 #   --dependency JOBS        Colon-separated job dependencies
 
@@ -33,51 +29,49 @@ set -euo pipefail
 SUBMIT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PYTHON_SCRIPT="${SUBMIT_DIR}/4_predict.py"
 
-BATCH=""
-PLATE_DIR=""
-DATA_DIR="/project/cell_paint_mono/cpg0039-garcia-fossa-livecellpainting"
-TRAINING_DIR=""
+CELL_LINE="Huh7"
+MANIFEST=""
+PLATE_ID=""
+DATASET_BASE="/project/cell_paint_mono/training_datasets"
 OUTPUT_DIR="/project/cell_paint_mono/predictions/cpg0039-garcia-fossa-livecellpainting"
 MMSE_COUNT=50
-NUM_POSTERIOR=3
-GRID_SIZE=32
+BATCH_SIZE=256
+AUTOCAST_FLAG="--autocast"
 MAX_FOVS=0
+BENCHMARK=false
 SLURM_MODE=false
 DEPENDENCY_JOBS=""
-
 SLURM_PARTITION="dgx"
-SLURM_TIME="48:00:00"
+SLURM_GRES="gpu:71gb:1"
+SLURM_TIME="24:00:00"
 SLURM_MEM="64G"
 SLURM_CPUS=8
-SLURM_GRES="gpu:71gb:1"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --batch)        BATCH="$2";           shift 2 ;;
-        --plate_dir)    PLATE_DIR="$2";       shift 2 ;;
-        --data_dir)     DATA_DIR="$2";        shift 2 ;;
-        --training_dir) TRAINING_DIR="$2";    shift 2 ;;
-        --output_dir)   OUTPUT_DIR="$2";      shift 2 ;;
-        --mmse_count)   MMSE_COUNT="$2";      shift 2 ;;
-        --num_posterior) NUM_POSTERIOR="$2";  shift 2 ;;
-        --grid_size)    GRID_SIZE="$2";       shift 2 ;;
-        --max_fovs)     MAX_FOVS="$2";        shift 2 ;;
-        --slurm)        SLURM_MODE=true;      shift ;;
-        --partition)    SLURM_PARTITION="$2"; shift 2 ;;
-        --time)         SLURM_TIME="$2";      shift 2 ;;
-        --mem)          SLURM_MEM="$2";       shift 2 ;;
-        --dependency)   DEPENDENCY_JOBS="$2"; shift 2 ;;
-        --help)
-            sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
-            exit 0 ;;
+        --manifest)      MANIFEST="$2";        shift 2 ;;
+        --plate_id)      PLATE_ID="$2";        shift 2 ;;
+        --dataset_base)  DATASET_BASE="$2";    shift 2 ;;
+        --output_dir)    OUTPUT_DIR="$2";      shift 2 ;;
+        --mmse_count)    MMSE_COUNT="$2";      shift 2 ;;
+        --batch_size)    BATCH_SIZE="$2";      shift 2 ;;
+        --no_autocast)   AUTOCAST_FLAG="";     shift ;;
+        --max_fovs)      MAX_FOVS="$2";        shift 2 ;;
+        --benchmark)     BENCHMARK=true;       shift ;;
+        --slurm)         SLURM_MODE=true;      shift ;;
+        --partition)     SLURM_PARTITION="$2"; shift 2 ;;
+        --gres)          SLURM_GRES="$2";      shift 2 ;;
+        --time)          SLURM_TIME="$2";      shift 2 ;;
+        --mem)           SLURM_MEM="$2";       shift 2 ;;
+        --dependency)    DEPENDENCY_JOBS="$2"; shift 2 ;;
+        --help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
     esac
 done
 
-if [[ -z "$TRAINING_DIR" ]]; then
-    echo "ERROR: --training_dir is required (use the model for the same cell line)" >&2
-    exit 1
-fi
+[[ -z "$MANIFEST" ]] && MANIFEST="/project/cell_paint_mono/splits/cpg0039-garcia-fossa-livecellpainting/${CELL_LINE}/split_manifest.csv"
+[[ -f "$MANIFEST" ]] || { echo "ERROR: manifest not found: ${MANIFEST} (run datasets.sh first)" >&2; exit 1; }
+TRAINING_DIR="${DATASET_BASE}/training_dataset_cpg0039_${CELL_LINE}"
 
 _activate_conda() {
     for CONDA_PATH in \
@@ -96,55 +90,51 @@ _activate_conda() {
     echo "ERROR: Conda not found" >&2; exit 1
 }
 
-# Collect plate directories to process
-PLATE_DIRS=()
-if [[ -n "$PLATE_DIR" ]]; then
-    PLATE_DIRS=("$PLATE_DIR")
-elif [[ -n "$BATCH" ]]; then
-    BATCH_IMAGES="${DATA_DIR}/${BATCH}/images"
-    if [[ ! -d "$BATCH_IMAGES" ]]; then
-        echo "ERROR: ${BATCH_IMAGES} not found" >&2; exit 1
-    fi
-    while IFS= read -r -d '' d; do
-        PLATE_DIRS+=("$d")
-    done < <(find "${BATCH_IMAGES}" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+# The manifest's first two columns are role and plate_id.
+PLATE_IDS=()
+if [[ -n "$PLATE_ID" ]]; then
+    PLATE_IDS=("$PLATE_ID")
 else
-    echo "ERROR: Specify --plate_dir or --batch" >&2; exit 1
+    while IFS= read -r line; do
+        PLATE_IDS+=("$line")
+    done < <(awk -F',' 'NR>1 && $1!="train" {print $2}' "$MANIFEST" | sort -u)
+fi
+[[ ${#PLATE_IDS[@]} -eq 0 ]] && { echo "ERROR: no plates found" >&2; exit 1; }
+
+if [[ "$BENCHMARK" == true ]]; then
+    _activate_conda
+    echo "Timing benchmark: 1 FOV of ${PLATE_IDS[0]} (batch ${BATCH_SIZE}, autocast=${AUTOCAST_FLAG:-off})" >&2
+    python "${PYTHON_SCRIPT}" --manifest "${MANIFEST}" --plate_id "${PLATE_IDS[0]}" \
+        --training_dir "${TRAINING_DIR}" --output_dir "${OUTPUT_DIR}/_benchmark" \
+        --mmse_count "${MMSE_COUNT}" --batch_size "${BATCH_SIZE}" ${AUTOCAST_FLAG} \
+        --max_fovs 1 --no_resume
+    exit 0
 fi
 
 echo "================================================================================" >&2
-echo "cpg0039 predict | plates=${#PLATE_DIRS[@]}" >&2
+echo "cpg0039 predict | ${CELL_LINE} | ${#PLATE_IDS[@]} plates | mmse=${MMSE_COUNT} batch=${BATCH_SIZE}" >&2
+echo "  manifest:     ${MANIFEST}" >&2
 echo "  training_dir: ${TRAINING_DIR}" >&2
-echo "  output_dir:   ${OUTPUT_DIR}" >&2
+echo "  output_dir:   ${OUTPUT_DIR}/${CELL_LINE}" >&2
 echo "================================================================================" >&2
 
 DEPENDENCY_DIRECTIVE=""
 [[ -n "$DEPENDENCY_JOBS" ]] && DEPENDENCY_DIRECTIVE="#SBATCH --dependency=afterok:${DEPENDENCY_JOBS}"
 
 SUBMITTED=()
-for PD in "${PLATE_DIRS[@]}"; do
-    PNAME=$(basename "$PD")
-    LOG_DIR="${OUTPUT_DIR}/logs/${PNAME}"
-    mkdir -p "${LOG_DIR}"
-
+LOG_DIR="${OUTPUT_DIR}/logs/${CELL_LINE}"; mkdir -p "${LOG_DIR}"
+for PID in "${PLATE_IDS[@]}"; do
+    CMD="python ${PYTHON_SCRIPT} --manifest ${MANIFEST} --plate_id ${PID} --training_dir ${TRAINING_DIR} --output_dir ${OUTPUT_DIR} --mmse_count ${MMSE_COUNT} --batch_size ${BATCH_SIZE} ${AUTOCAST_FLAG} --max_fovs ${MAX_FOVS}"
     if [[ "$SLURM_MODE" == false ]]; then
         _activate_conda
-        python "${PYTHON_SCRIPT}" \
-            --plate_dir    "${PD}" \
-            --training_dir "${TRAINING_DIR}" \
-            --output_dir   "${OUTPUT_DIR}" \
-            --mmse_count   "${MMSE_COUNT}" \
-            --num_posterior_samples "${NUM_POSTERIOR}" \
-            --grid_size    "${GRID_SIZE}" \
-            --max_fovs     "${MAX_FOVS}"
+        eval "${CMD}"
         continue
     fi
-
     JOB_ID=$(sbatch --parsable <<EOF
 #!/bin/bash
-#SBATCH --job-name=pred_cpg0039_${PNAME:0:20}
-#SBATCH --output=${LOG_DIR}/predict_%j.log
-#SBATCH --error=${LOG_DIR}/predict_%j.log
+#SBATCH --job-name=pred_cpg0039_${PID}
+#SBATCH --output=${LOG_DIR}/predict_${PID}_%j.log
+#SBATCH --error=${LOG_DIR}/predict_${PID}_%j.log
 #SBATCH --partition=${SLURM_PARTITION}
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -154,31 +144,18 @@ for PD in "${PLATE_DIRS[@]}"; do
 #SBATCH --time=${SLURM_TIME}
 ${DEPENDENCY_DIRECTIVE}
 
-echo "Job \${SLURM_JOB_ID}: predict cpg0039 ${PNAME} | Node: \${SLURMD_NODENAME} | Start: \$(date)"
+echo "Job \${SLURM_JOB_ID}: predict ${CELL_LINE} ${PID} | Node: \${SLURMD_NODENAME} | Start: \$(date)"
 $(declare -f _activate_conda)
 _activate_conda
-
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 export TORCHINDUCTOR_DISABLE_CUDAGRAPHS=1
-
-python "${PYTHON_SCRIPT}" \
-    --plate_dir    "${PD}" \
-    --training_dir "${TRAINING_DIR}" \
-    --output_dir   "${OUTPUT_DIR}" \
-    --mmse_count   "${MMSE_COUNT}" \
-    --num_posterior_samples "${NUM_POSTERIOR}" \
-    --grid_size    "${GRID_SIZE}" \
-    --max_fovs     "${MAX_FOVS}"
-
+${CMD}
 EXIT_CODE=\$?
 echo "End: \$(date) | Exit: \$EXIT_CODE"
 exit \$EXIT_CODE
 EOF
     )
     SUBMITTED+=("${JOB_ID}")
-    echo "  Submitted job ${JOB_ID}: ${PNAME}" >&2
+    echo "  Submitted job ${JOB_ID}: ${PID}" >&2
 done
-
-if [[ "$SLURM_MODE" == true ]]; then
-    echo "Submitted: ${#SUBMITTED[@]} jobs" >&2
-    echo "${SUBMITTED[*]//\ /:}"
-fi
+[[ "$SLURM_MODE" == true ]] && { echo "Submitted: ${#SUBMITTED[@]} jobs" >&2; echo "${SUBMITTED[*]//\ /:}"; }

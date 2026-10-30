@@ -120,6 +120,45 @@ def read_fov_channels(
     return channels
 
 
+def read_channel_paths(channel_paths: Dict[str, str]) -> Dict[str, np.ndarray]:
+    """Read one image per channel from explicit file paths.
+
+    Parameters
+    ----------
+    channel_paths : dict
+        Mapping from channel name to image file path.
+
+    Returns
+    -------
+    dict mapping channel_name -> ndarray (H, W)
+    """
+    return {ch: tifffile.imread(path) for ch, path in channel_paths.items()}
+
+
+def fov_image_path(images_dir: Path, well: str, site: int, channel_index: int) -> Path:
+    """Path of one channel image in the JUMP / Opera Phenix naming convention.
+
+    Parameters
+    ----------
+    images_dir : Path
+        Path to the Images/ directory of the plate.
+    well : str
+        Well identifier like ``"A01"`` or ``"P24"``.
+    site : int
+        Site/field number (1-indexed).
+    channel_index : int
+        Channel file index (the ``ch{N}`` part of the file name).
+
+    Returns
+    -------
+    Path
+    """
+    row = ord(well[0]) - 64
+    col = int(well[1:])
+    fname = f"r{row:02d}c{col:02d}f{site:02d}p01-ch{channel_index}sk1fk1fl1.tiff"
+    return Path(images_dir) / fname
+
+
 def load_fov_image(
     images_dir: Path,
     well: str,
@@ -146,11 +185,33 @@ def load_fov_image(
     -------
     ndarray (H, W) uint16
     """
-    row = ord(well[0]) - 64
-    col = int(well[1:])
-    ch_idx = channel_mapping[channel]
-    fname = f"r{row:02d}c{col:02d}f{site:02d}p01-ch{ch_idx}sk1fk1fl1.tiff"
-    return tifffile.imread(str(Path(images_dir) / fname))
+    path = fov_image_path(images_dir, well, site, channel_mapping[channel])
+    return tifffile.imread(str(path))
+
+
+def center_crop(image: np.ndarray, size: int) -> np.ndarray:
+    """Crop the central ``size`` x ``size`` region of a 2D image.
+
+    Parameters
+    ----------
+    image : ndarray (H, W)
+    size : int
+        Side length of the crop.
+
+    Returns
+    -------
+    ndarray (size, size)
+
+    Raises
+    ------
+    ValueError
+        If the image is smaller than ``size`` along either axis.
+    """
+    h, w = image.shape[:2]
+    if h < size or w < size:
+        raise ValueError(f"Image of shape {image.shape} is smaller than {size}x{size}")
+    top, left = (h - size) // 2, (w - size) // 2
+    return image[top : top + size, left : left + size]
 
 
 # ---------------------------------------------------------------------------
