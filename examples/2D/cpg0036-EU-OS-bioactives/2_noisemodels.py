@@ -18,8 +18,8 @@ Workflow:
 
 Usage:
     python 2_noisemodels.py \\
-        --dataset_dir /project/cell_paint_mono/training_datasets/training_dataset_cpg0036_HepG2 \\
-        --output_dir  .../training_dataset_cpg0036_HepG2/noise_models \\
+        --dataset_dir /project/cell_paint_mono/training_datasets/training_dataset_cpg0036_allsites_HepG2 \\
+        --output_dir  .../training_dataset_cpg0036_allsites_HepG2/noise_models \\
         --channel DNA
 """
 

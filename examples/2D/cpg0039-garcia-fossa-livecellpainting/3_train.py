@@ -1,26 +1,16 @@
 #!/usr/bin/env python3
 """
-MicroSplit training for cpg0039-garcia-fossa-livecellpainting dataset.
-
-Live Cell Painting with Acridine Orange — only 2 channels:
-  AO_Green  (GFP filter, 469/525 nm)
-  AO_Red    (PI filter,  531/647 nm)
-
-Train one model per cell line (Huh_7, MCF_7, PNT1A, PC_3).
-Point --dataset_dir at the directory built by 1_datasets.py for the target
-cell line.
+MicroSplit training for cpg0039-garcia-fossa-livecellpainting.
 
 Expected dataset layout under <dataset_dir>/:
-    AO_Green/   — individual channel .tiff files (uint16)
-    AO_Red/
-    combined/   — pixel-wise sum of both channels (float32)
-    noise_models/ — noise_model_AO_Green.npz, noise_model_AO_Red.npz
-    checkpoints/  — written here during training
+    AO_Green/ AO_Red/               individual channel .tiff files (uint16)
+    combined/                       average of all channels (float32)
+    noise_models/                   noise_model_{channel}.npz per channel
+    checkpoints/                    written here during training
 
 Usage:
-    python 3_train.py \\
-        --dataset_dir /project/cell_paint_mono/training_datasets/training_dataset_cpg0039_Huh_7
-    python 3_train.py --dataset_dir ... --test_mode
+    python 3_train.py --dataset_dir /project/cell_paint_mono/training_datasets/training_dataset_cpg0039_Huh7
+    python 3_train.py --dataset_dir ... --test_mode   # 2 epochs sanity check
 """
 
 import argparse
@@ -33,7 +23,7 @@ import numpy as np
 import torch
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import WandbLogger
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 
 from careamics.lightning import VAEModule
 
@@ -52,7 +42,6 @@ from microsplit_reproducibility.datasets.common import create_lazy_datasets
 from microsplit_reproducibility.utils.callbacks import get_callbacks
 
 
-# 2-channel Live Cell Painting (Acridine Orange only)
 CHANNELS = ["AO_Green", "AO_Red"]
 
 
@@ -61,23 +50,27 @@ def parse_args():
         description="MicroSplit training for cpg0039-garcia-fossa-livecellpainting"
     )
     parser.add_argument("--dataset_dir",  required=True,
-                        help="Path to the training dataset directory "
-                             "(training_dataset_cpg0039_{cell_line}/)")
+                        help="Path to the training dataset directory")
     parser.add_argument("--num_epochs",   type=int,   default=100)
     parser.add_argument("--batch_size",   type=int,   default=64)
     parser.add_argument("--num_workers",  type=int,   default=8)
-    parser.add_argument("--check_val_every_n_epoch", type=int, default=5)
+    parser.add_argument("--check_val_every_n_epoch", type=int, default=1)
     parser.add_argument("--early_stopping_patience", type=int, default=50)
     parser.add_argument("--test_mode",    action="store_true",
                         help="Run 2 epochs on 2 frames for a sanity check")
     parser.add_argument("--compile",      action="store_true",
                         help="torch.compile the inner LadderVAE for faster training")
     parser.add_argument("--train_grid_size", type=int, default=64,
-                        help="Training grid size")
+                        help="Training grid size; larger means fewer patches per epoch")
     parser.add_argument("--val_fraction",  type=float, default=0.1)
     parser.add_argument("--test_fraction", type=float, default=0.1)
     parser.add_argument("--cache_size",    type=int,   default=64,
                         help="LRU cache size in frames")
+    parser.add_argument("--max_patches_per_epoch", type=int, default=45000,
+                        help="Cap on patches per epoch (random with replacement); "
+                             "0 = every grid patch of every frame (slow for big sets)")
+    parser.add_argument("--max_val_frames", type=int, default=30,
+                        help="Validate on at most this many frames (0 = all)")
     parser.add_argument("--wandb_entity",  type=str,   default="juglab")
     parser.add_argument("--wandb_project", type=str,   default="JUMP-MicroSplit")
     parser.add_argument("--wandb_run_name", type=str,  default=None,
@@ -166,6 +159,8 @@ def main():
     if args.test_mode:
         train_dset.reduce_data([0, 1])
         val_dset.reduce_data([0])
+    elif args.max_val_frames > 0 and val_dset.get_num_frames() > args.max_val_frames:
+        val_dset.reduce_data(list(range(args.max_val_frames)))
 
     print(f"Train frames: {train_dset.get_num_frames()}")
     print(f"Val frames:   {val_dset.get_num_frames()}")
@@ -177,7 +172,15 @@ def main():
         persistent_workers=args.num_workers > 0,
         prefetch_factor=2 if args.num_workers > 0 else None,
     )
-    train_loader = DataLoader(train_dset, shuffle=True,  **loader_kwargs)
+    if args.max_patches_per_epoch > 0 and not args.test_mode:
+        sampler = RandomSampler(train_dset, replacement=True,
+                                num_samples=args.max_patches_per_epoch)
+        train_loader = DataLoader(train_dset, sampler=sampler, **loader_kwargs)
+        print(f"Patches/epoch:   {args.max_patches_per_epoch} of {len(train_dset)} "
+              f"({args.max_patches_per_epoch // args.batch_size} steps)")
+    else:
+        train_loader = DataLoader(train_dset, shuffle=True,  **loader_kwargs)
+        print(f"Patches/epoch:   {len(train_dset)} ({len(train_dset) // args.batch_size} steps)")
     val_loader   = DataLoader(val_dset,   shuffle=False, **loader_kwargs)
 
     experiment_params["data_stats"] = data_stats

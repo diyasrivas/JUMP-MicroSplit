@@ -2,23 +2,26 @@
 # MicroSplit training for cpg0000-jump-pilot (Step 3).
 #
 # Usage:
-#   ./train.sh --cell_lines "A549 U2OS"
-#   ./train.sh --cell_lines "A549" --test   # 2-epoch sanity check
-#   ./train.sh --dependency "12345:12346"   # after noise model jobs
+#   ./train.sh --design gene_subset --cell_lines "A549 U2OS"
+#   ./train.sh --design gene_subset --cell_lines "A549" --test   # 2-epoch sanity check
+#   ./train.sh --design gene_subset --dependency "12345:12346"   # after noise model jobs
 #
 # Options:
+#   --design NAME                gene_subset or random_wells (required)
 #   --cell_lines "A549 U2OS"     Space-separated (default: A549 U2OS)
 #   --dataset_base DIR           (default: /project/cell_paint_mono/training_datasets)
+#   --max_patches_per_epoch N    Patches sampled per epoch, 0 = full grid (default: 45000 ≈ 700 steps)
+#   --max_val_frames N           Validation frames, 0 = all (default: 30)
 #   --epochs N                   Training epochs (default: 100)
 #   --batch_size N               (default: 64)
 #   --num_workers N              DataLoader workers (default: 8)
-#   --check_val_every N          (default: 5)
+#   --check_val_every N          (default: 1)
 #   --early_stopping_patience N  (default: 50)
 #   --train_grid_size N          (default: 64)
 #   --no-compile                 Disable torch.compile
 #   --test                       2 epochs on 2 frames, 1-hour walltime
-#   --time HH:MM:SS              SLURM walltime override (default: 24:00:00)
-#   --mem XG                     (default: 32G)
+#   --time HH:MM:SS              SLURM walltime override (default: 48:00:00)
+#   --mem XG                     (default: 64G)
 #   --partition NAME             (default: dgx)
 #   --gres GRES                  (default: gpu:71gb:1)
 #   --dependency "j1:j2"         Colon-separated SLURM job dependencies
@@ -29,12 +32,15 @@ SUBMIT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PYTHON_SCRIPT="${SUBMIT_DIR}/3_train.py"
 DATASET_BASE="/project/cell_paint_mono/training_datasets"
 
+DESIGN=""
 CELL_LINES=("A549" "U2OS")
 NUM_EPOCHS=100
 BATCH_SIZE=64
 NUM_WORKERS=8
-CHECK_VAL_EVERY=5
+CHECK_VAL_EVERY=1
 EARLY_STOPPING_PATIENCE=50
+MAX_PATCHES_PER_EPOCH=45000
+MAX_VAL_FRAMES=30
 COMPILE_FLAG="--compile"
 TRAIN_GRID_SIZE=64
 TEST_MODE=false
@@ -44,13 +50,14 @@ WANDB_PROJECT="JUMP-MicroSplit"
 WANDB_FLAG=""
 
 SLURM_PARTITION="dgx"
-SLURM_TIME="24:00:00"
-SLURM_MEM="32G"
+SLURM_TIME="48:00:00"
+SLURM_MEM="64G"
 SLURM_CPUS=8
 SLURM_GRES="gpu:71gb:1"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --design)                  DESIGN="$2";                     shift 2 ;;
         --cell_lines)              read -ra CELL_LINES <<< "$2"; shift 2 ;;
         --dataset_base)            DATASET_BASE="$2";               shift 2 ;;
         --epochs)                  NUM_EPOCHS="$2";                 shift 2 ;;
@@ -59,6 +66,8 @@ while [[ $# -gt 0 ]]; do
         --check_val_every)         CHECK_VAL_EVERY="$2";            shift 2 ;;
         --early_stopping_patience) EARLY_STOPPING_PATIENCE="$2";   shift 2 ;;
         --train_grid_size)         TRAIN_GRID_SIZE="$2";            shift 2 ;;
+        --max_patches_per_epoch)   MAX_PATCHES_PER_EPOCH="$2";      shift 2 ;;
+        --max_val_frames)          MAX_VAL_FRAMES="$2";             shift 2 ;;
         --wandb_entity)            WANDB_ENTITY="$2";               shift 2 ;;
         --wandb_project)           WANDB_PROJECT="$2";              shift 2 ;;
         --no_wandb)                WANDB_FLAG="--no_wandb";         shift ;;
@@ -72,11 +81,14 @@ while [[ $# -gt 0 ]]; do
         --gres)      SLURM_GRES="$2";      shift 2 ;;
         --dependency) DEPENDENCY_JOBS="$2"; shift 2 ;;
         --help)
-            sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+[[ "$DESIGN" == "gene_subset" || "$DESIGN" == "random_wells" ]] || {
+    echo "ERROR: --design must be gene_subset or random_wells" >&2; exit 1; }
 
 _activate_conda() {
     for CONDA_PATH in \
@@ -106,7 +118,7 @@ echo "==========================================================================
 
 SUBMITTED=()
 for CL in "${CELL_LINES[@]}"; do
-    DATASET_DIR="${DATASET_BASE}/training_dataset_${CL}"
+    DATASET_DIR="${DATASET_BASE}/training_dataset_cpg0000_${DESIGN}_${CL}"
     LOG_DIR="${DATASET_DIR}/logs/train"
     mkdir -p "${LOG_DIR}"
 
@@ -139,6 +151,8 @@ python "${PYTHON_SCRIPT}" \
     --check_val_every_n_epoch  ${CHECK_VAL_EVERY} \
     --early_stopping_patience  ${EARLY_STOPPING_PATIENCE} \
     --train_grid_size          ${TRAIN_GRID_SIZE} \
+    --max_patches_per_epoch    ${MAX_PATCHES_PER_EPOCH} \
+    --max_val_frames           ${MAX_VAL_FRAMES} \
     --wandb_entity             "${WANDB_ENTITY}" \
     --wandb_project            "${WANDB_PROJECT}" \
     ${TEST_FLAG} ${COMPILE_FLAG} ${WANDB_FLAG}

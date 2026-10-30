@@ -1,104 +1,74 @@
 # cpg0039-garcia-fossa-livecellpainting
 
-MicroSplit channel-unmixing experiment for the Live Cell Painting dataset of
-Garcia-Fossa et al. (2025) using Acridine Orange.
+MicroSplit on the Live Cell Painting dataset of Garcia-Fossa et al. (*Mol. Biol. Cell* 2025). Huh-7 cells are stained with a single dye, Acridine Orange (AO), and imaged in two channels. The two channels are averaged into one image and MicroSplit predicts the two channels back. One model.
 
-## Dataset details
+## Data
 
-| Property | Value |
-|----------|-------|
-| Paper | Garcia-Fossa et al. (2025) |
-| Dye | Acridine Orange (AO) — single metachromatic dye |
-| Cell lines | **Huh-7, MCF-7, PNT1A, PC-3** (train separately!) |
-| Plates | 96-well plates, 16 sites per well |
-| Microscope | Cytation 5 BioTek (20× objective, NA 0.45) |
-| Image size | 1224 × 904 pixels, 16-bit |
+- Raw images: `/project/cell_paint_mono/cpg0039-garcia-fossa-livecellpainting/unicamp/images/{batch}/images/{plate}/`. Cytation 5, 20x 0.45 NA, 904 x 1224 pixels, 96-well plates.
+- File names: `{well}_{n}_{channel_index}_{field}_{filter}_001.tif`. Channels are read by filter name:
 
-## Channel layout — 2 channels only (NOT standard Cell Painting)
+| Channel | Filter | Signal |
+|---|---|---|
+| AO_Green | `GFP` | DNA, RNA, cytoplasm |
+| AO_Red | `Propidium Iodide` | acidic organelles |
 
-This dataset uses a single Acridine Orange (AO) metachromatic dye, which
-produces **2 spectrally distinct signals** depending on the cellular
-environment. There are **no DNA/RNA/ER/AGP/Mito channels**.
+| Batch | Plates | Fields per well | Use |
+|---|---|---|---|
+| `2022_06_07_DILI` | 3 | 25 | test (Figure 4) |
+| `2021_10_08_AgNPViability` | 3 | 16 | test (Ag100 and Non-treated wells, Figure 3) and train (other wells) |
+| `2022_03_24_Acidification_AO` | 4 | 16 | train (AO-stained wells) |
 
-| Channel | TIFF index | Filter cube | Ex/Em | Biology |
-|---------|-----------|-------------|-------|---------|
-| AO_Red | ch1 | PI | 531/647 nm | Acidic organelles (lysosomes, lipid droplets) |
-| AO_Green | ch2 | GFP | 469/525 nm | DNA + RNA + cytoplasm |
+Only the three 2022 DILI plates have deposited images; the paper's Figure 4 also includes two 2023 plates.
 
-Channel indices follow longest-to-shortest convention. **Verify against actual
-TIFF files before running** — the Cytation 5 BioTek file naming and channel
-numbering differs from Opera Phenix.
+## Split
 
-> **Key point:** The two AO channels are spectrally distinct emissions from a
-> single dye. MicroSplit learns to unmix the combined AO signal into the
-> individual spectral components.
+| | Wells | Fields | FOVs |
+|---|---|---|---|
+| Test, DILI | every imaged well (177) | 1, 9, 17, 25 | 708 |
+| Test, AgNP | `test_wells_agnp.csv`: all Ag100 wells (8 doses x 9) and Non-treated wells (18) | 1, 6, 11, 16 | 360 |
+| Train | the other 90 AgNP wells and the 69 AO wells of the Acidification_AO plates | one or two random fields per well | 300 |
 
-## Cell lines — train separately!
+The DILI experiment is never used for training, and `0_split.py` asserts that no training well is a test well.
 
-Huh-7, MCF-7, PNT1A, and PC-3 cells have different morphologies and AO staining
-patterns. Train one MicroSplit model per cell line and predict only on plates
-from the same cell line.
+Outputs:
 
-## File naming — Cytation 5 BioTek
-
-The Cytation 5 Gen5 software uses a different file naming convention than
-Opera Phenix. `1_datasets.py` contains two auto-detected patterns; if neither
-matches the actual cpg0039 TIFF files, adjust `discover_fovs_cpg0039()` in
-`1_datasets.py` to match the actual naming. Check a sample `Images/` directory:
-
-```bash
-ls /project/cell_paint_mono/cpg0039-garcia-fossa-livecellpainting/{batch}/images/{plate}/Images/ | head -20
+```
+/project/cell_paint_mono/splits/cpg0039-garcia-fossa-livecellpainting/Huh7/split_manifest.csv, split_summary.json
+/project/cell_paint_mono/training_datasets/training_dataset_cpg0039_Huh7/
+/project/cell_paint_mono/predictions/cpg0039-garcia-fossa-livecellpainting/Huh7/{plate_id}/
 ```
 
 ## Workflow
 
-```
-1_datasets.py / datasets.sh      ← build dataset  (one job per cell line)
-2_noisemodels.py / noise_models.sh ← 2 noise models in parallel
-3_train.py / train.sh            ← train MicroSplit model
-4_predict.py / predict.sh        ← plate-level prediction
-```
-
-### HPC quick start
-
 ```bash
-# Step 1: Build datasets for all 4 cell lines
-DS_HUH7=$(./datasets.sh  --cell_line Huh_7  --slurm)
-DS_MCF7=$(./datasets.sh  --cell_line MCF_7  --slurm)
-DS_PNT1A=$(./datasets.sh --cell_line PNT1A  --slurm)
-DS_PC3=$(./datasets.sh   --cell_line PC_3   --slurm)
+# 0+1  split manifest + training dataset (CPU, minutes)
+./datasets.sh
 
-# Step 2: Train noise models (2 parallel jobs per cell line)
-NM_HUH7=$(./noise_models.sh \
-    --dataset_dir .../training_dataset_cpg0039_Huh_7 \
-    --slurm --dependency "${DS_HUH7}")
+# 2    noise models, one GPU job per channel
+D=/project/cell_paint_mono/training_datasets/training_dataset_cpg0039_Huh7
+./noise_models.sh --dataset_dir ${D} --slurm
 
-# Step 3: Train model
-TR_HUH7=$(./train.sh \
-    --dataset_dir .../training_dataset_cpg0039_Huh_7 \
-    --slurm --dependency "${NM_HUH7}")
+# 3    training (100 epochs of 45,000 patches)
+./train.sh --dataset_dir ${D} --slurm
 
-# Step 4: Predict (use matching cell-line model)
-./predict.sh --batch 2021_XX_Batch1 \
-    --training_dir .../training_dataset_cpg0039_Huh_7 \
-    --slurm --dependency "${TR_HUH7}"
+# 4a   timing benchmark: 1 FOV interactively on a GPU node
+./predict.sh --benchmark
+
+# 4b   prediction of the test FOVs, one job per plate, MMSE-50, no posterior samples
+./predict.sh --slurm
 ```
 
-## Output structure
+Prediction output per plate: `mmse/mmse_{well}_s{site:02d}_{channel}.tif`, `metadata.csv` (one row per FOV with the manifest fields, raw image paths and PSNR / SSIM; appended as each FOV finishes, so rerunning a plate resumes) and `metrics_summary.csv`.
 
-```
-training_dataset_cpg0039_{cell_line}/
-    combined/        float32 sum of AO_Green + AO_Red
-    AO_Green/        uint16 individual channel images
-    AO_Red/
-    noise_models/    noise_model_AO_Green.npz, noise_model_AO_Red.npz
-    checkpoints/     model_*.ckpt + last.ckpt
-    training_stats.npz
-    metadata.csv
+## Scripts
 
-predictions/cpg0039-garcia-fossa-livecellpainting/{plate}/
-    mmse/            mmse_{well}_s{site:02d}_{channel}.tif
-    sample_0/ ...    posterior samples
-    metadata.csv
-    metrics_summary.csv
-```
+| File | Role |
+|---|---|
+| `0_split.py` | builds the split manifest from the image files, the platemaps and `test_wells_agnp.csv` |
+| `1_datasets.py` | writes the training dataset from the `train` rows of the manifest |
+| `2_noisemodels.py` | one N2V + GMM noise model per channel |
+| `3_train.py` | LadderVAE training; `--max_patches_per_epoch` (45,000) caps the epoch, `--max_val_frames` (30) caps validation |
+| `4_predict.py` | per-plate prediction of the test rows of the manifest |
+| `*.sh` | SLURM launchers for each step |
+| `test_wells_agnp.csv` | the AgNP test wells |
+| `deprecated/` | earlier versions of the scripts, kept for reference |

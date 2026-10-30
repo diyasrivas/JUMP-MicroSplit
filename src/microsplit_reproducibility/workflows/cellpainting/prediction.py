@@ -7,14 +7,27 @@ the ``channel_names`` list (and the model/stats objects, which are loaded by
 :mod:`model_io`).
 """
 
+import contextlib
+import gc
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 import tifffile
 from skimage.transform import resize
+
+from .image_io import read_channel_paths
+from .manifest import (
+    PATH_PREFIX,
+    append_metadata_row,
+    completed_fovs,
+    row_channel_paths,
+)
+from .metrics import compute_metrics
 
 
 DEFAULT_CHANNEL_NAMES = ["DNA", "RNA", "ER", "AGP", "Mito"]
@@ -165,9 +178,10 @@ def predict_fov(
     grid_size: int = 32,
     multiscale_lowres_count: int = 3,
     mmse_count: int = 50,
-    num_posterior_samples: int = 3,
+    num_posterior_samples: int = 0,
     posterior_seeds: Tuple[int, ...] = (42, 123, 456),
     batch_size: int = 32,
+    use_autocast: bool = False,
 ) -> Tuple[np.ndarray, List[np.ndarray]]:
     """Run MicroSplit prediction on a single field of view.
 
@@ -193,11 +207,14 @@ def predict_fov(
     mmse_count : int
         Number of Monte-Carlo samples for MMSE. Default: 50.
     num_posterior_samples : int
-        How many individual posterior samples to return. Default: 3.
+        How many individual posterior samples to return. Default: 0 (MMSE only).
     posterior_seeds : tuple of int
         RNG seeds for each saved posterior sample.
     batch_size : int
         Tile batch size for GPU inference. Default: 32.
+    use_autocast : bool
+        Run the forward pass under bfloat16 autocast on CUDA (throughput only;
+        the model, tiling and MMSE averaging are unchanged). Default: False.
 
     Returns
     -------
@@ -260,7 +277,12 @@ def predict_fov(
     ]
 
     model.eval()
-    with torch.no_grad():
+    amp_ctx = (
+        torch.autocast("cuda", dtype=torch.bfloat16)
+        if (use_autocast and device.type == "cuda")
+        else contextlib.nullcontext()
+    )
+    with torch.no_grad(), amp_ctx:
         for sample_idx in range(mmse_count):
             is_saved_sample = sample_idx < num_posterior_samples
             if is_saved_sample:
@@ -275,7 +297,7 @@ def predict_fov(
                 rec, _ = model(inp)
                 if model.model.predict_logvar is not None:
                     rec, _ = torch.chunk(rec, 2, dim=1)
-                tiles_out.append(rec[:, :num_channels].cpu().numpy())
+                tiles_out.append(rec[:, :num_channels].float().cpu().numpy())
 
             tiles_out = np.concatenate(tiles_out, axis=0)
             mmse_accum += tiles_out
@@ -380,3 +402,121 @@ def save_fov_predictions(
                 os.path.join(sdir, f"sample{s_idx}_{well}_s{site:02d}_{ch_name}.tif"),
                 img,
             )
+
+
+def predict_manifest_fovs(
+    rows: pd.DataFrame,
+    model,
+    stats: Dict,
+    channel_names: List[str],
+    output_dir: str,
+    mmse_count: int = 50,
+    batch_size: int = 256,
+    use_autocast: bool = False,
+    grid_size: int = 32,
+    save_float32: bool = False,
+    resume: bool = True,
+) -> Optional[pd.DataFrame]:
+    """Predict the FOVs of a split manifest whose rows list per-channel image paths.
+
+    Each FOV's MMSE prediction is written to ``output_dir/mmse/`` and one row is
+    appended to ``output_dir/metadata.csv`` as soon as it finishes, so a killed
+    job can be resumed. The row holds the manifest's metadata columns, the raw
+    image paths, the MMSE file names, PSNR / SSIM per channel and the run time.
+    A per-channel ``metrics_summary.csv`` is written at the end.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        Manifest rows to predict, one per FOV, with ``well``, ``site`` and one
+        ``path_{channel}`` column per channel.
+    model : VAEModule
+        Trained model (already on the appropriate device).
+    stats : dict
+        Normalization statistics as saved by the training script.
+    channel_names : list of str
+        Ordered channel names.
+    output_dir : str
+        Output directory for this plate.
+    mmse_count : int
+        Number of Monte-Carlo samples for MMSE. Default: 50.
+    batch_size : int
+        Tile batch size for GPU inference. Default: 256.
+    use_autocast : bool
+        Run the forward pass under bfloat16 autocast on CUDA. Default: False.
+    grid_size : int
+        Stride between patches. Default: 32.
+    save_float32 : bool
+        Save float32 instead of uint16 TIFFs. Default: False.
+    resume : bool
+        Skip FOVs already present in ``metadata.csv`` with all MMSE files on
+        disk. Default: True.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        Contents of ``metadata.csv`` after the run (None if nothing was written).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    meta_path = os.path.join(output_dir, "metadata.csv")
+    mmse_dir = os.path.join(output_dir, "mmse")
+
+    def mmse_name(well: str, site: int, channel: str) -> str:
+        return f"mmse_{well}_s{site:02d}_{channel}.tif"
+
+    done = completed_fovs(meta_path) if resume else set()
+    done = {
+        (well, site) for well, site in done
+        if all(os.path.isfile(os.path.join(mmse_dir, mmse_name(well, site, ch)))
+               for ch in channel_names)
+    }
+    records = rows.to_dict("records")
+    todo = [r for r in records if (str(r["well"]), int(r["site"])) not in done]
+    meta_columns = [c for c in rows.columns if not c.startswith(PATH_PREFIX)]
+    print(f"FOVs: {len(records)} listed, {len(records) - len(todo)} already done, "
+          f"{len(todo)} to process")
+
+    t0 = time.time()
+    for i, r in enumerate(todo):
+        well, site = str(r["well"]), int(r["site"])
+        fov_t0 = time.time()
+        paths = row_channel_paths(r, channel_names)
+        channel_images = read_channel_paths(paths)
+
+        mmse_pred, _ = predict_fov(
+            model=model, channel_images=channel_images, stats=stats,
+            channel_names=channel_names, image_size=64, grid_size=grid_size,
+            multiscale_lowres_count=3, mmse_count=mmse_count, num_posterior_samples=0,
+            batch_size=batch_size, use_autocast=use_autocast,
+        )
+        save_fov_predictions(output_dir, well, site, mmse_pred, [],
+                             channel_names=channel_names, save_uint16=not save_float32)
+        metrics = compute_metrics(channel_images, mmse_pred, channel_names)
+
+        row = {c: r[c] for c in meta_columns}
+        row.update({f"raw_{ch}": paths[ch] for ch in channel_names})
+        row["mmse_files"] = ",".join(f"mmse/{mmse_name(well, site, ch)}" for ch in channel_names)
+        row.update(metrics)
+        row["seconds"] = round(time.time() - fov_t0, 1)
+        append_metadata_row(meta_path, row)
+
+        eta = (len(todo) - i - 1) * (time.time() - t0) / (i + 1)
+        psnr = " ".join(f"{ch}={metrics[f'psnr_{ch}']:.1f}" for ch in channel_names)
+        print(f"[{i + 1}/{len(todo)}] {well} s{site} {row['seconds']:.0f}s | "
+              f"ETA {eta / 3600:.1f}h | {psnr}")
+        if (i + 1) % 50 == 0:
+            torch.cuda.empty_cache()
+            gc.collect()
+
+    if not os.path.isfile(meta_path) or os.path.getsize(meta_path) == 0:
+        return None
+    meta = pd.read_csv(meta_path)
+    summary = [{"channel": ch, "mean_psnr": meta[f"psnr_{ch}"].mean(),
+                "mean_ssim": meta[f"ssim_{ch}"].mean()} for ch in channel_names]
+    summary.append({
+        "channel": "all_channels",
+        "mean_psnr": meta[[f"psnr_{ch}" for ch in channel_names]].values.mean(),
+        "mean_ssim": meta[[f"ssim_{ch}" for ch in channel_names]].values.mean(),
+    })
+    pd.DataFrame(summary).to_csv(os.path.join(output_dir, "metrics_summary.csv"), index=False)
+    return meta

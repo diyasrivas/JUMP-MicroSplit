@@ -4,11 +4,11 @@
 # Submits 5 parallel SLURM jobs (one per channel) or runs sequentially.
 #
 # Usage:
-#   ./noise_models.sh --cell_line A549
-#   ./noise_models.sh --cell_line A549 --slurm
-#   ./noise_models.sh --cell_lines "A549 U2OS" --slurm
+#   ./noise_models.sh --design gene_subset --cell_lines A549
+#   ./noise_models.sh --design gene_subset --cell_lines "A549 U2OS" --slurm
 #
 # Options:
+#   --design NAME              gene_subset or random_wells (required)
 #   --cell_lines "A549 U2OS"   Space-separated cell lines (default: A549 U2OS)
 #   --dataset_base DIR         Base dir for training datasets
 #                              (default: /project/cell_paint_mono/training_datasets)
@@ -23,6 +23,7 @@ set -euo pipefail
 SUBMIT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PYTHON_SCRIPT="${SUBMIT_DIR}/2_noisemodels.py"
 
+DESIGN=""
 CELL_LINES=("A549" "U2OS")
 CHANNELS=("DNA" "RNA" "ER" "AGP" "Mito")
 DATASET_BASE="/project/cell_paint_mono/training_datasets"
@@ -37,6 +38,7 @@ SLURM_GRES="gpu:71gb:1"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --design)        DESIGN="$2"; shift 2 ;;
         --cell_lines)    read -ra CELL_LINES <<< "$2"; shift 2 ;;
         --dataset_base)  DATASET_BASE="$2"; shift 2 ;;
         --slurm)         SLURM_MODE=true;   shift ;;
@@ -45,11 +47,14 @@ while [[ $# -gt 0 ]]; do
         --mem)           SLURM_MEM="$2";    shift 2 ;;
         --dependency)    DEPENDENCY_JOBS="$2"; shift 2 ;;
         --help)
-            sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+[[ "$DESIGN" == "gene_subset" || "$DESIGN" == "random_wells" ]] || {
+    echo "ERROR: --design must be gene_subset or random_wells" >&2; exit 1; }
 
 _activate_conda() {
     for CONDA_PATH in \
@@ -69,7 +74,7 @@ _activate_conda() {
 }
 
 echo "================================================================================" >&2
-echo "cpg0000 noise models | cell_lines=${CELL_LINES[*]}" >&2
+echo "cpg0000 noise models | design=${DESIGN} | cell_lines=${CELL_LINES[*]}" >&2
 echo "================================================================================" >&2
 
 SUBMITTED=()
@@ -77,7 +82,7 @@ DEPENDENCY_DIRECTIVE=""
 [[ -n "$DEPENDENCY_JOBS" ]] && DEPENDENCY_DIRECTIVE="#SBATCH --dependency=afterok:${DEPENDENCY_JOBS}"
 
 for CL in "${CELL_LINES[@]}"; do
-    DATASET_DIR="${DATASET_BASE}/training_dataset_${CL}"
+    DATASET_DIR="${DATASET_BASE}/training_dataset_cpg0000_${DESIGN}_${CL}"
     NM_DIR="${DATASET_DIR}/noise_models"
     mkdir -p "${NM_DIR}"
 

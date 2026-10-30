@@ -4,22 +4,24 @@
 # Run once per cell line. Point --dataset_dir at the correct cell-line directory.
 #
 # Usage:
-#   ./train.sh --dataset_dir .../training_dataset_cpg0036_HepG2
-#   ./train.sh --dataset_dir .../training_dataset_cpg0036_U2OS --test
-#   ./train.sh --dataset_dir ... --dependency "NM_JOB1:NM_JOB2:NM_JOB3:NM_JOB4"
+#   ./train.sh --dataset_dir .../training_dataset_cpg0036_allsites_HepG2
+#   ./train.sh --dataset_dir .../training_dataset_cpg0036_allsites_U2OS --test
+#   ./train.sh --dataset_dir ... --dependency "NM_JOB1:NM_JOB2"
 #
 # Options:
 #   --dataset_dir DIR            Training dataset directory (required)
+#   --max_patches_per_epoch N    Patches sampled per epoch, 0 = full grid (default: 45000 ≈ 700 steps)
+#   --max_val_frames N           Validation frames, 0 = all (default: 30)
 #   --epochs N                   Training epochs (default: 100)
 #   --batch_size N               (default: 64)
 #   --num_workers N              DataLoader workers (default: 8)
-#   --check_val_every N          (default: 5)
+#   --check_val_every N          (default: 1)
 #   --early_stopping_patience N  (default: 50)
 #   --train_grid_size N          (default: 64)
 #   --no-compile                 Disable torch.compile
 #   --test                       2 epochs on 2 frames, 1-hour walltime
-#   --time HH:MM:SS              SLURM walltime override (default: 24:00:00)
-#   --mem XG                     (default: 32G)
+#   --time HH:MM:SS              SLURM walltime override (default: 48:00:00)
+#   --mem XG                     (default: 64G)
 #   --partition NAME             (default: dgx)
 #   --gres GRES                  (default: gpu:71gb:1)
 #   --dependency "j1:j2"         Colon-separated SLURM job dependencies
@@ -33,8 +35,10 @@ DATASET_DIR=""
 NUM_EPOCHS=100
 BATCH_SIZE=64
 NUM_WORKERS=8
-CHECK_VAL_EVERY=5
+CHECK_VAL_EVERY=1
 EARLY_STOPPING_PATIENCE=50
+MAX_PATCHES_PER_EPOCH=45000
+MAX_VAL_FRAMES=30
 COMPILE_FLAG="--compile"
 TRAIN_GRID_SIZE=64
 TEST_MODE=false
@@ -44,8 +48,8 @@ WANDB_PROJECT="JUMP-MicroSplit"
 WANDB_FLAG=""
 
 SLURM_PARTITION="dgx"
-SLURM_TIME="24:00:00"
-SLURM_MEM="32G"
+SLURM_TIME="48:00:00"
+SLURM_MEM="64G"
 SLURM_CPUS=8
 SLURM_GRES="gpu:71gb:1"
 
@@ -58,6 +62,8 @@ while [[ $# -gt 0 ]]; do
         --check_val_every)         CHECK_VAL_EVERY="$2";            shift 2 ;;
         --early_stopping_patience) EARLY_STOPPING_PATIENCE="$2";   shift 2 ;;
         --train_grid_size)         TRAIN_GRID_SIZE="$2";            shift 2 ;;
+        --max_patches_per_epoch)   MAX_PATCHES_PER_EPOCH="$2";      shift 2 ;;
+        --max_val_frames)          MAX_VAL_FRAMES="$2";             shift 2 ;;
         --wandb_entity)            WANDB_ENTITY="$2";               shift 2 ;;
         --wandb_project)           WANDB_PROJECT="$2";              shift 2 ;;
         --no_wandb)                WANDB_FLAG="--no_wandb";         shift ;;
@@ -71,7 +77,7 @@ while [[ $# -gt 0 ]]; do
         --gres)      SLURM_GRES="$2";      shift 2 ;;
         --dependency) DEPENDENCY_JOBS="$2"; shift 2 ;;
         --help)
-            sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -143,6 +149,8 @@ python "${PYTHON_SCRIPT}" \
     --check_val_every_n_epoch  ${CHECK_VAL_EVERY} \
     --early_stopping_patience  ${EARLY_STOPPING_PATIENCE} \
     --train_grid_size          ${TRAIN_GRID_SIZE} \
+    --max_patches_per_epoch    ${MAX_PATCHES_PER_EPOCH} \
+    --max_val_frames           ${MAX_VAL_FRAMES} \
     --wandb_entity             "${WANDB_ENTITY}" \
     --wandb_project            "${WANDB_PROJECT}" \
     ${TEST_FLAG} ${COMPILE_FLAG} ${WANDB_FLAG}
