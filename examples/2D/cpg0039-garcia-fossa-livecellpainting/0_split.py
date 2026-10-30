@@ -55,13 +55,21 @@ MANIFEST_COLUMNS = [
 ]
 
 
-def index_plate_images(plate_dir: Path) -> pd.DataFrame:
+def list_local_images(data_dir: Path, batch: str) -> dict[str, list[str]]:
+    """Plate -> image file names of one batch in a local copy of the dataset."""
+    images_dir = data_dir / "images" / batch / "images"
+    return {d.name: [p.name for p in d.iterdir()] for d in images_dir.iterdir() if d.is_dir()}
+
+
+def index_plate_images(plate_dir: Path, names: list[str]) -> pd.DataFrame:
     """FOVs of one plate that have both AO channels, with their image paths.
 
     Parameters
     ----------
     plate_dir : Path
         Directory holding the plate's TIFF files.
+    names : list of str
+        File names in ``plate_dir``.
 
     Returns
     -------
@@ -69,7 +77,7 @@ def index_plate_images(plate_dir: Path) -> pd.DataFrame:
         One row per (well, site) with one ``path_{channel}`` column per channel.
     """
     records = []
-    for name in sorted(p.name for p in plate_dir.iterdir()):
+    for name in sorted(names):
         match = FILE_PATTERN.match(name)
         if match and match["filter"] in FILTERS.values():
             records.append({
@@ -102,11 +110,18 @@ def load_platemap(data_dir: Path, batch: str) -> pd.DataFrame:
     })
 
 
-def load_batch_fovs(data_dir: Path, batch: str) -> pd.DataFrame:
-    """All FOVs with both AO channels of one batch, joined to the platemap."""
+def load_batch_fovs(
+    data_dir: Path, batch: str, image_names: dict[str, list[str]] | None = None
+) -> pd.DataFrame:
+    """All FOVs with both AO channels of one batch, joined to the platemap.
+
+    ``image_names`` (plate -> file names) defaults to the files under ``data_dir``.
+    """
     images_dir = data_dir / "images" / batch / "images"
+    image_names = image_names or list_local_images(data_dir, batch)
     fovs = pd.concat(
-        [index_plate_images(d).assign(plate_id=d.name) for d in sorted(images_dir.iterdir()) if d.is_dir()],
+        [index_plate_images(images_dir / plate, image_names[plate]).assign(plate_id=plate)
+         for plate in sorted(image_names)],
         ignore_index=True,
     )
     fovs = fovs.merge(load_platemap(data_dir, batch), on=["plate_id", "well"], how="left")
@@ -133,12 +148,17 @@ def assign_test_roles(rows: pd.DataFrame, test_set: str) -> pd.DataFrame:
 
 
 def build_manifest(data_dir: Path, agnp_test_wells: pd.DataFrame, dili_fields: list[int],
-                   n_train: int, rng: np.random.Generator) -> pd.DataFrame:
-    """Test rows of both test sets and ``n_train`` random training rows."""
-    dili = load_batch_fovs(data_dir, DILI_BATCH)
+                   n_train: int, rng: np.random.Generator,
+                   image_names: dict[str, dict[str, list[str]]] | None = None) -> pd.DataFrame:
+    """Test rows of both test sets and ``n_train`` random training rows.
+
+    ``image_names`` (batch -> plate -> file names) defaults to the files under ``data_dir``.
+    """
+    image_names = image_names or {}
+    dili = load_batch_fovs(data_dir, DILI_BATCH, image_names.get(DILI_BATCH))
     dili_test = assign_test_roles(dili[dili.site.isin(dili_fields)], "DILI")
 
-    agnp = load_batch_fovs(data_dir, AGNP_BATCH)
+    agnp = load_batch_fovs(data_dir, AGNP_BATCH, image_names.get(AGNP_BATCH))
     test_keys = set(zip(agnp_test_wells.Metadata_Plate, agnp_test_wells.Metadata_Well))
     is_test_well = np.array([k in test_keys for k in zip(agnp.plate_id, agnp.well)])
     agnp_test = agnp[is_test_well & agnp.site.isin(AGNP_TEST_FIELDS)]
@@ -146,7 +166,7 @@ def build_manifest(data_dir: Path, agnp_test_wells: pd.DataFrame, dili_fields: l
     assert n_found == len(test_keys), f"found {n_found} of {len(test_keys)} AgNP test wells"
     agnp_test = assign_test_roles(agnp_test, "AgNP")
 
-    acidification = load_batch_fovs(data_dir, ACIDIFICATION_BATCH)
+    acidification = load_batch_fovs(data_dir, ACIDIFICATION_BATCH, image_names.get(ACIDIFICATION_BATCH))
     pool = pd.concat([agnp[~is_test_well], acidification[acidification.dye == "AO"]], ignore_index=True)
     train = sample_training_fovs(pool, n_train, rng).assign(role=TRAIN_ROLE, test_set="")
 
