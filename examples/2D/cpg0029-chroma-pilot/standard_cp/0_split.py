@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""cpg0029 Standard CP (BR00122250). Step 0: split manifest.
+
+Channels and paths: ../cpg0029_shared/dye_sets.py. Logic: ../cpg0029_shared/steps.py.
+Run with --help for options.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from cpg0029_shared.steps import split_main  # noqa: E402
+
+if __name__ == "__main__":
+    split_main("standard_cp")
