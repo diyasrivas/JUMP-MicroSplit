@@ -1,90 +1,78 @@
-# cpg0029-chroma-pilot
+# cpg0029 chroma pilot: MicroSplit per dye set
 
-MicroSplit workflow for the **cpg0029 ChromaLive pilot dataset** — fixed U2OS cells imaged
-with 3 dye conditions to characterise ChromaLive reagents.
+Data: Cell Painting Gallery `cpg0029-chroma-pilot` (Sivagurunathan et al., *SLAS Discovery* 2025).
+U2OS, 90 compounds x 4 wells + 24 DMSO wells, one 384-well plate per dye set, all with the
+same platemap. The goal is to reproduce Figs 4 and 5 (phenotypic activity and
+distinctiveness, scored within each plate) on the MicroSplit predictions.
 
-## Dataset
+Each dye set uses different dyes in the same TIFF channels, so **each dye set has its own
+MicroSplit model**, trained on the non-test wells of its own plate.
 
-- Source: [Cell Painting Gallery cpg0029](https://github.com/broadinstitute/cellpainting-gallery)
-- Local path: `/project/cell_paint_mono/cpg0029-chroma-pilot/images/`
-- 7 plates × 384 wells × 9 fields = ~24,192 FOVs
-- Channel mapping (8-channel Opera Phenix):
+| Folder | Plate | Dye set | Channels unmixed | Raw only (never mixed) |
+|---|---|---|---|---|
+| `standard_cp/` | BR00122250 | Standard CP | DNA, RNA, ER, AGP, Mito | Brightfield, Phase, Actin (ch8; no 400LS dye on this plate, features dropped by the authors) |
+| `mitobrilliant/` | BR00122246 | CP + MitoBrilliant | DNA, RNA, ER, AGP, Mito | Brightfield, Phase, Actin (ch8; no 400LS dye on this plate, features dropped by the authors) |
+| `phalloidin_400ls/` | BR00122247 | CP + Phenovue phalloidin 400LS | DNA, RNA, ER, GP (WGA), Mito, Actin (ch8) | Brightfield, Phase |
+| `post_chromalive_cp/` | BR00122248 | Standard CP after live ChromaLive | DNA, RNA, ER, AGP, Mito | Brightfield, Phase, Actin (ch8; no 400LS dye on this plate, features dropped by the authors) |
+| `chromalive/` | BR00122249 (48 h) | ChromaLive + Hoechst | CL488R, CL488Y, CL561YE, DNA (Hoechst) | Brightfield, Phase, 647 |
 
-| Channel    | File index | Notes                  |
-|------------|-----------|------------------------|
-| Phase      | ch1       | not used               |
-| Brightfield| ch2       | not used               |
-| RNA        | ch3       | SYTO 14                |
-| ER         | ch4       | Concanavalin A         |
-| AGP        | ch5       | WGA + Phalloidin       |
-| Mito       | ch6       | MitoTracker            |
-| DNA        | ch7       | Hoechst 33342          |
-| Actin      | ch8       | PhenoVue 400LS (new)   |
+Channel names and TIFF indices come from the authors' `load_data.csv` of each plate and live
+in one place: `cpg0029_shared/dye_sets.py`. Raw-only channels are loaded by the authors'
+CellProfiler pipelines, so the `load_data` files written after prediction point them at the
+original images in both series.
 
-## Dye conditions
+## Test set (shared by all dye sets)
 
-| Plate barcode | Dye condition     |
-|---------------|------------------|
-| BR00122244    | standard_cp       |
-| BR00122246    | standard_cp       |
-| BR00122250    | standard_cp       |
-| BR00122247    | alt_mito          |
-| BR00122245    | post_chromalive   |
-| BR00122248    | post_chromalive   |
-| BR00122249    | post_chromalive   |
+`test_fovs.csv`, written once by `0_select_test_set.py` (seed 42): 30 compounds drawn at
+random from the 90 (all 4 wells each), 12 random DMSO wells out of 24, and 4 random sites
+out of 9 per well, which gives 528 FOVs. Because the platemap is identical, every plate
+predicts the same (well, site) pairs. Training FOVs (300 per dye set by default) are drawn
+from the other wells of the same plate.
 
-## Workflow
+## Layout
 
-Run steps in order. Each step can be submitted as a SLURM job (add `--slurm`).
-
-### Step 1 — Build training dataset
-```bash
-./datasets.sh --slurm
+```
+0_select_test_set.py, test_fovs.csv   test set, shared
+cpg0029_shared/                       all logic: dye_sets.py, split.py, steps.py, launchers/
+<dye_set>/                            thin entry points for one dye set
+    0_split.py 1_datasets.py 2_noisemodels.py 3_train.py 4_predict.py
+    datasets.sh noise_models.sh train.sh predict.sh
+deprecated/                           previous scripts (wrong plate map, 30 % well hold-out)
 ```
 
-Stratified-samples ~3500 FOVs across all 7 plates, holds out 30% of wells per plate
-for evaluation. Writes to:
-```
-/project/cell_paint_mono/training_datasets/training_dataset_cpg0029/
-    combined/        float32 pixel-wise sum of 5 channels
-    DNA/ RNA/ ER/ AGP/ Mito/   uint16 per-channel images
-    metadata.csv     per-FOV metadata (includes dye_condition)
-    test_wells.csv   held-out wells for evaluation
-```
+Outputs (per dye set):
 
-### Step 2 — Train noise models (5 channels in parallel)
-```bash
-./noise_models.sh --slurm --dependency "DATASET_JOB_ID"
-```
+| Step | Path |
+|---|---|
+| split | `/project/cell_paint_mono/splits/cpg0029-chroma-pilot/<dye_set>/split_manifest.csv`, `split_summary.json` |
+| dataset, noise models, checkpoints, logs | `/project/cell_paint_mono/training_datasets/training_dataset_cpg0029_<dye_set>/` |
+| predictions | `/project/cell_paint_mono/predictions/cpg0029-chroma-pilot/<dye_set>/<barcode>/` with `mmse/`, `metadata.csv`, `metrics_summary.csv`, `load_data_with_illum.csv` (MicroSplit series), `load_data_with_illum_original.csv` (Original series) |
 
-### Step 3 — Train MicroSplit model
-```bash
-./train.sh --slurm --dependency "NM_JOB1:NM_JOB2:..."
-# Quick sanity check (2 epochs, 1h):
-./train.sh --test
-```
+## Running one dye set
 
-### Step 4 — Predict (per plate)
-```bash
-./predict.sh --plate_dir /project/cell_paint_mono/cpg0029-chroma-pilot/images/2023_05_15_Batch1/BR00122246__2023-04-01T03_13_00-Measurement1 --slurm
-```
-
-## Output structure
-```
-/project/cell_paint_mono/predictions/cpg0029-chroma-pilot/{plate_name}/
-    mmse/                  MMSE predictions (uint16 .tif)
-    sample_0/              Posterior sample 0
-    sample_1/              Posterior sample 1
-    sample_2/              Posterior sample 2
-    metadata.csv           Per-FOV metrics (PSNR/SSIM per channel, dye_condition)
-    metrics_summary.csv    Mean PSNR/SSIM per channel
-```
-
-## SLURM chaining example
+From the dye-set folder, on the cluster login node:
 
 ```bash
-DS_JOB=$(./datasets.sh --slurm)
-NM_JOBS=$(./noise_models.sh --slurm --dependency "${DS_JOB}")
-TRAIN_JOB=$(./train.sh --slurm --dependency "${NM_JOBS}")
-./predict.sh --batch 2023_05_15_Batch1 --slurm --dependency "${TRAIN_JOB}"
+cd phalloidin_400ls
+./datasets.sh --slurm                                   # steps 0+1 (CPU)
+NM=$(./noise_models.sh --dependency <datasets_job>)     # step 2, one GPU job per channel
+./train.sh --test --dependency "$NM"                    # optional 2-epoch sanity check
+TR=$(./train.sh --dependency "$NM")                     # step 3, 100 epochs, W&B
+./predict.sh --benchmark --dependency "$TR"             # optional: time 1 FOV
+./predict.sh --dependency "$TR"                         # step 4, MMSE 50 + load_data
 ```
+
+Each `.sh` has `--help`. Python steps can also be run directly, e.g.
+`python phalloidin_400ls/0_split.py --help`.
+
+## Notes
+
+- Noise models, training and prediction all log to W&B (entity `juglab`, project
+  `JUMP-MicroSplit`, group `cpg0029`, job types `noise_model`, `train`, `predict`). Prediction logs
+  a per-FOV PSNR / SSIM table and per-channel means. Local W&B files go to the dataset or
+  prediction folder on `/project`. Use `--no_wandb` to turn it off.
+- `phalloidin_400ls` unmixes 6 channels, the maximum the configs support; not tried before.
+- The illumination functions (`images/<batch>/illum/<barcode>/`) are not downloaded yet; the
+  `load_data` files are written without `Illum` columns until they are. Rerun
+  `4_predict.py --load_data_only` afterwards.
+- BR00122246 well O01 has 8 of 9 sites; the split only uses FOVs whose files exist and open.
